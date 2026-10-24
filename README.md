@@ -8,6 +8,8 @@ A Model Context Protocol (MCP) server providing native integration with Apple Re
 
 The EventKit backend is the standalone [`event`](https://github.com/FradSer/event) Swift CLI, vendored as a git submodule and built into `bin/event` during `pnpm install` — no separate `brew install` required. See [docs/migration-to-event-cli.md](docs/migration-to-event-cli.md) for the v1.5.0 backend swap and the list of write fields not yet exposed by `event`.
 
+This fork exposes **19 operation-specific MCP tools**. Tool names select the operation; callers do not pass `action`. The original five combined tool names are no longer accepted. Use the local build below to load this fork; the published `npx mcp-server-apple-events` package still uses the upstream interface.
+
 ## Table of Contents
 
 - [Features](#features)
@@ -45,12 +47,44 @@ The published npm package ships a pre-built, universal, code-signed `bin/event` 
 ## Quick Start
 
 ```bash
-npx mcp-server-apple-events
+cd /absolute/path/to/mcp-server-apple-events-fork
+pnpm install --frozen-lockfile
+pnpm run build:ts
+node dist/index.js
 ```
 
 ## Configuration
 
-Add the server to your MCP client. The `npx` form works for every client below; for a local build, replace `command`/`args` with `node` pointing at `dist/index.js`.
+Add the server to your MCP client. Point each client at this checkout’s built `dist/index.js`, then restart the MCP connection so the client refreshes its tool list.
+
+### Select tools at startup
+
+Use `--tools` to choose which tools this MCP instance exposes. Accepts comma-separated names or repeated flags. See the tool table below or run `node dist/index.js --help` for available names.
+
+```bash
+node dist/index.js --tools calendar_events_create
+node dist/index.js --tools calendar_events_create,calendar_calendars_read
+node dist/index.js --tools calendar_events_create --tools calendar_calendars_read
+```
+
+Omitting `--tools`, passing it without a value, or supplying an empty string or a list containing only whitespace/commas enables all 19 tools. Empty entries are ignored, duplicate names are merged, and unknown names fail startup. Selection is fixed at instance startup; restart the connection after changing configuration. Unselected tools are absent from the tool list and cannot be called directly. Initialization instructions list only enabled tools. Tool selection can be combined with `--require-write-confirmation`.
+
+For example, expose only event creation:
+
+```json
+{
+  "mcpServers": {
+    "apple-reminders": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/mcp-server-apple-events-fork/dist/index.js",
+        "--tools",
+        "calendar_events_create"
+      ]
+    }
+  }
+}
+```
 
 ### Cursor
 
@@ -60,8 +94,8 @@ Settings → MCP → Add new global MCP server:
 {
   "mcpServers": {
     "apple-reminders": {
-      "command": "npx",
-      "args": ["-y", "mcp-server-apple-events"]
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-server-apple-events-fork/dist/index.js"]
     }
   }
 }
@@ -73,8 +107,8 @@ Settings → Tools → "+", then:
 
 - Type: `stdio`
 - ID: `apple-reminders`
-- Command: `mcp-server-apple-events`
-- Args: (empty)
+- Command: `node`
+- Args: `/absolute/path/to/mcp-server-apple-events-fork/dist/index.js`
 
 ### Claude Desktop
 
@@ -84,8 +118,8 @@ Edit `claude_desktop_config.json` (open it via Settings → Developer Option →
 {
   "mcpServers": {
     "apple-reminders": {
-      "command": "npx",
-      "args": ["-y", "mcp-server-apple-events"]
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-server-apple-events-fork/dist/index.js"]
     }
   }
 }
@@ -167,8 +201,8 @@ To require a fresh user confirmation for every write, add the startup flag to yo
 
 ```json
 {
-  "command": "npx",
-  "args": ["-y", "mcp-server-apple-events", "--require-write-confirmation"]
+  "command": "node",
+  "args": ["/absolute/path/to/mcp-server-apple-events-fork/dist/index.js", "--require-write-confirmation"]
 }
 ```
 
@@ -182,66 +216,65 @@ When server confirmation is enabled, the server trusts the client to display the
 
 ## Available MCP Tools
 
-Service-scoped tools mirror Apple Reminders and Calendar domains. All take an `action` field plus action-specific parameters (the MCP client introspects the full Zod schema; only actions are listed here). Date fields accept `YYYY-MM-DD`, `YYYY-MM-DD HH:mm:ss` (local time), or ISO 8601 with timezone.
+Each operation has a separate tool and accepts only its own parameters. There is no `action` parameter. The server rejects the old combined names and unexpected parameters, including attempts to change the operation with `action`.
 
-| Tool | Actions | Notes |
-| --- | --- | --- |
-| `reminders_tasks` | `read`, `create`, `update`, `delete` | Priority, tags, subtasks. `startDate` is set via `update`, not `create`; on `read` it scopes the due-date window alongside `endDate`. Cross-list moves unsupported. |
-| `reminders_subtasks` | `read`, `create`, `update`, `delete`, `toggle`, `reorder` | Stored in the notes field (human-readable in Reminders.app). |
-| `reminders_lists` | `read`, `create`, `update`, `delete` | Rename via `name` → `newName`. |
-| `calendar_events` | `read`, `create`, `update`, `delete` | On reads, `startDate` and `endDate` are wall-clock values in the event's `timeZone`; timed events also include `startDateISO` and `endDateISO` as unambiguous UTC timestamps when available. Use the ISO fields to schedule or compare events. All-day events do not include them. All-day is inferred from date format. Cross-calendar moves remain unsupported. `span` scopes recurring deletes. `attendees` (update) invites addresses; `occurrenceDate` (delete) excepts one occurrence of a series — both need extra setup, see [Attendees and single occurrences](#attendees-and-single-occurrences). |
-| `calendar_calendars` | `read` | Without a date range, every calendar EventKit reports, with its `source` and write permission. With `startDate`/`endDate`, calendars holding ≥1 event in the window, annotated with an event count. |
+| Resource | Read | Create | Update | Delete | Other writes |
+| --- | --- | --- | --- | --- | --- |
+| Reminders | `reminders_tasks_read` | `reminders_tasks_create` | `reminders_tasks_update` | `reminders_tasks_delete` | — |
+| Reminder lists | `reminders_lists_read` | `reminders_lists_create` | `reminders_lists_update` | `reminders_lists_delete` | — |
+| Checklist subtasks | `reminders_subtasks_read` | `reminders_subtasks_create` | `reminders_subtasks_update` | `reminders_subtasks_delete` | `reminders_subtasks_toggle`, `reminders_subtasks_reorder` |
+| Calendar events | `calendar_events_read` | `calendar_events_create` | `calendar_events_update` | `calendar_events_delete` | — |
+| Calendar collections | `calendar_calendars_read` | — | — | — | — |
 
-Example calls:
+Select tools on the server with `--tools`; the MCP host can restrict them further. For event creation, select `calendar_events_create`; optionally add `calendar_calendars_read` to select a target calendar and `calendar_events_read` to check existing events. Modification, deletion, Reminders, subtask toggle, and subtask reorder can each be selected separately. Tool annotations describe behavior; server tool selection is independent of host authorization. The EventKit backend still requires full macOS Calendar access.
+
+Each create tool is additive, each `_read` tool makes no changes, and update/delete/toggle/reorder tools can change existing data. `--require-write-confirmation` still applies to every write. The default remains no server confirmation form. Refresh any saved tool allowlists after switching to this fork; the old names are not compatibility aliases.
+
+Dates accept `YYYY-MM-DD`, `YYYY-MM-DD HH:mm:ss` (local time), or ISO 8601 with a timezone. Bare dates create all-day events. Timed reads include `startDateISO`/`endDateISO` when the source timezone resolves unambiguously. Event creation supports URLs, alarms, and availability; recurrence and structured locations must be configured in Calendar.app. Cross-calendar moves are unsupported. Reminder creation supports tags and subtasks; reminder `startDate` and completion are update-only. Subtasks are stored in reminder notes.
+
+Example MCP calls:
 
 ```json
 {
-  "action": "create",
-  "title": "Buy groceries",
-  "dueDate": "2024-03-25 18:00:00",
-  "targetList": "Shopping",
-  "note": "Don't forget milk and eggs",
-  "priority": 1,
-  "tags": ["shopping", "errands"],
-  "subtasks": ["Milk", "Eggs", "Bread"]
+  "name": "calendar_events_create",
+  "arguments": {
+    "title": "Team standup",
+    "startDate": "2026-11-02 09:00:00",
+    "endDate": "2026-11-02 09:30:00",
+    "targetCalendar": "Work",
+    "timezone": "Asia/Shanghai",
+    "alarms": [15]
+  }
 }
 ```
 
 ```json
-{ "action": "read", "filterList": "Work", "dueWithin": "today", "filterPriority": "high", "filterTags": ["urgent"] }
+{"name":"reminders_tasks_create","arguments":{"title":"Buy groceries","targetList":"Shopping","subtasks":["Milk","Eggs"]}}
 ```
 
 ```json
-{ "action": "read", "startDate": "2026-08-01", "endDate": "2026-08-31" }
+{"name":"reminders_tasks_read","arguments":{"filterList":"Work","dueWithin":"today","filterPriority":"high"}}
 ```
 
 ```json
-{ "action": "update", "id": "reminder-123", "completed": false, "addTags": ["followup"] }
+{"name":"reminders_lists_update","arguments":{"name":"Project Alpha","newName":"Project Beta"}}
 ```
 
 ```json
-{ "action": "toggle", "reminderId": "reminder-123", "subtaskId": "a1b2c3d4" }
+{"name":"reminders_subtasks_toggle","arguments":{"reminderId":"reminder-123","subtaskId":"a1b2c3d4"}}
 ```
 
 ```json
-{ "action": "create", "name": "Project Alpha" }
+{"name":"calendar_events_update","arguments":{"id":"event-123","attendees":["alex@example.com"]}}
 ```
 
 ```json
-{ "action": "create", "title": "Team standup", "startDate": "2026-05-04 09:00:00", "endDate": "2026-05-04 09:30:00", "targetCalendar": "Work" }
-```
-
-```json
-{ "action": "update", "id": "event-123", "attendees": ["alex@example.com", "sam@example.com"] }
-```
-
-```json
-{ "action": "delete", "id": "event-123", "occurrenceDate": "2026-09-21T09:00:00" }
+{"name":"calendar_events_delete","arguments":{"id":"event-123","occurrenceDate":"2026-11-09T09:00:00"}}
 ```
 
 ### Attendees and single occurrences
 
-These two `calendar_events` parameters are the only writes that do not go through the `event` CLI, because EventKit cannot express either one. Each needs setup the rest of the server does not.
+The `attendees` parameter of `calendar_events_update` and the `occurrenceDate` parameter of `calendar_events_delete` are the only writes that do not go through the `event` CLI, because EventKit cannot express either one. Each needs setup the rest of the server does not.
 
 **`attendees` (update)** — invites email addresses to an existing event. `EKCalendarItem.attendees` is read-only in the macOS SDK and EventKit has no invitation API, so the write goes through Calendar.app's scripting interface; adding the attendee locally is what makes iCloud send the invitation.
 

@@ -1,361 +1,491 @@
-/**
- * tools/definitions.ts
- * MCP tool definitions for the Apple Reminders / Calendar server.
- *
- * The schema is the cross-action property union for each tool; the per-action
- * validator (src/validation/schemas.ts) narrows the accepted fields.
- */
-
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import {
-  CALENDAR_ACTIONS,
-  DUE_WITHIN_OPTIONS,
-  LIST_ACTIONS,
-  REMINDER_ACTIONS,
-} from '../types/index.js';
+import { DUE_WITHIN_OPTIONS } from '../types/index.js';
+import { TOOLS as TOOL_NAMES } from '../utils/constants.js';
+
+type Properties = NonNullable<Tool['inputSchema']['properties']>;
+type Operation = 'read' | 'create' | 'update' | 'delete' | 'toggle' | 'reorder';
+
+function operationTool<T extends Properties>(
+  name: string,
+  action: Operation,
+  description: string,
+  fields: T,
+  selected: (keyof T & string)[],
+  required: string[] = [],
+): Tool {
+  return {
+    name,
+    description,
+    inputSchema: {
+      type: 'object',
+      properties: Object.fromEntries(
+        selected.map((key) => [key, fields[key]!]),
+      ),
+      required,
+      additionalProperties: false,
+    },
+    annotations: {
+      readOnlyHint: action === 'read',
+      destructiveHint: action !== 'read' && action !== 'create',
+      idempotentHint: action === 'read',
+    },
+  };
+}
+
+const reminderFields = {
+  id: { type: 'string', description: 'The unique identifier of the reminder.' },
+  title: { type: 'string', description: 'The title of the reminder.' },
+  dueDate: {
+    type: 'string',
+    description:
+      'Due date. Use YYYY-MM-DD for an all-day reminder, YYYY-MM-DD HH:mm:ss for local time, or ISO 8601 with a timezone for an exact instant.',
+  },
+  note: { type: 'string', description: 'Additional notes for the reminder.' },
+  url: {
+    type: 'string',
+    format: 'uri',
+    description:
+      'A URL to associate with the reminder. App deep links are supported; unsafe schemes and blocked network addresses are rejected.',
+  },
+  completed: {
+    type: 'boolean',
+    description: 'Mark the reminder completed or incomplete.',
+  },
+  priority: {
+    type: 'integer',
+    enum: [0, 1, 5, 9],
+    description: 'Priority: 0=none, 1=high, 5=medium, 9=low.',
+  },
+  targetList: { type: 'string', description: 'The name of the reminder list.' },
+  filterList: {
+    type: 'string',
+    description: 'Filter by a reminder list name.',
+  },
+  showCompleted: {
+    type: 'boolean',
+    default: false,
+    description: 'Include completed reminders.',
+  },
+  search: { type: 'string', description: 'Search reminder titles and notes.' },
+  dueWithin: {
+    type: 'string',
+    enum: DUE_WITHIN_OPTIONS,
+    description: 'Filter reminders by a due date range.',
+  },
+  startDate: {
+    type: 'string',
+    description:
+      'Start date for an update, or the inclusive start of a read window. Reads use only the date prefix; if one bound is omitted, it defaults to a 14-day window.',
+  },
+  endDate: {
+    type: 'string',
+    description:
+      'Exclusive end day of the read window. Reads use only the date prefix; if one bound is omitted, it defaults to a 14-day window.',
+  },
+  filterPriority: {
+    type: 'string',
+    enum: ['high', 'medium', 'low', 'none'],
+    description: 'Filter by priority.',
+  },
+  filterRecurring: {
+    type: 'boolean',
+    description: 'Only include recurring reminders.',
+  },
+  filterLocationBased: {
+    type: 'boolean',
+    description: 'Only include location-based reminders.',
+  },
+  filterTags: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Require all of these tags.',
+  },
+  tags: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Set the reminder tags.',
+  },
+  addTags: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Add tags without replacing existing tags.',
+  },
+  removeTags: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Remove these tags.',
+  },
+  subtasks: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'Titles of initial checklist subtasks.',
+  },
+} satisfies Properties;
+
+const listFields = {
+  name: { type: 'string', description: 'The reminder list name.' },
+  newName: {
+    type: 'string',
+    description: 'The new name for the reminder list.',
+  },
+} satisfies Properties;
+
+const calendarFields = {
+  id: {
+    type: 'string',
+    description: 'The event identifier. Reading by ID needs no date range.',
+  },
+  title: { type: 'string', description: 'The event title.' },
+  startDate: {
+    type: 'string',
+    description:
+      'Event start: YYYY-MM-DD for all-day, YYYY-MM-DD HH:mm:ss for local time, or ISO 8601 with a timezone.',
+  },
+  endDate: {
+    type: 'string',
+    description:
+      'Event end: YYYY-MM-DD for all-day, YYYY-MM-DD HH:mm:ss for local time, or ISO 8601 with a timezone.',
+  },
+  note: { type: 'string', description: 'Additional notes for the event.' },
+  location: { type: 'string', description: 'Location text for the event.' },
+  timezone: {
+    type: 'string',
+    description:
+      'IANA timezone for a timed event, such as Asia/Shanghai. Start and end are interpreted in this timezone. Omit for all-day events.',
+  },
+  url: {
+    type: ['string', 'null'],
+    description:
+      'Event URL. On update, null removes it. Unsafe schemes and blocked network addresses are rejected.',
+  },
+  alarms: {
+    type: 'array',
+    items: { type: 'integer', minimum: 0 },
+    description:
+      'Minutes before the start. Create sets alarms; update replaces them.',
+  },
+  addAlarms: {
+    type: 'array',
+    items: { type: 'integer', minimum: 0 },
+    description: 'Append alarms without removing existing ones.',
+  },
+  clearAlarms: { type: 'boolean', description: 'Remove all alarms.' },
+  availability: {
+    type: 'string',
+    enum: ['busy', 'free', 'tentative', 'unavailable'],
+    description:
+      'Scheduling availability. The calendar must support the requested value.',
+  },
+  attendees: {
+    type: 'array',
+    items: { type: 'string' },
+    description:
+      'Email addresses to invite. Sends real invitations; supply attendees alone in an update. Requires Calendar.app Automation permission.',
+  },
+  span: {
+    type: 'string',
+    enum: ['this-event', 'future-events'],
+    description:
+      'Delete this event or this and future occurrences. Do not combine with occurrenceDate.',
+  },
+  occurrenceDate: {
+    type: 'string',
+    description:
+      'Delete one specific recurring occurrence. Requires iCloud CalDAV credentials; do not combine with span.',
+  },
+  targetCalendar: {
+    type: 'string',
+    description:
+      'Calendar name for creation. Omit to use the default calendar.',
+  },
+  filterCalendar: { type: 'string', description: 'Filter by a calendar name.' },
+  search: {
+    type: 'string',
+    description: 'Search event titles, notes, and locations.',
+  },
+} satisfies Properties;
+
+const calendarReadFields = {
+  ...calendarFields,
+  startDate: {
+    type: 'string',
+    description:
+      'Read-window start. Only the date prefix is used; time and timezone are truncated. If both bounds are omitted, defaults to today; if only endDate is provided, defaults to a 14-day window ending at that bound.',
+  },
+  endDate: {
+    type: 'string',
+    description:
+      'Read-window end. A date-only or non-midnight end includes its named day; a midnight end is an exclusive boundary. If both bounds are omitted, defaults to today + 14 days; if only startDate is provided, defaults to startDate + 14 days.',
+  },
+  availability: {
+    type: 'string',
+    enum: ['not-supported', 'busy', 'free', 'tentative', 'unavailable'],
+    description: 'Filter by scheduling availability.',
+  },
+} satisfies Properties;
+
+const subtaskFields = {
+  reminderId: {
+    type: 'string',
+    description: 'The identifier of the parent reminder.',
+  },
+  subtaskId: { type: 'string', description: 'The identifier of the subtask.' },
+  title: { type: 'string', description: 'The subtask title.' },
+  completed: {
+    type: 'boolean',
+    description: 'The completion status of the subtask.',
+  },
+  order: {
+    type: 'array',
+    items: { type: 'string' },
+    description: 'All existing subtask IDs in the requested order.',
+  },
+} satisfies Properties;
+
+const calendarCollectionFields = {
+  startDate: {
+    type: 'string',
+    description:
+      'Optional start for scoped calendar discovery. Uses only the date prefix; if one bound is omitted, defaults to a 14-day window.',
+  },
+  endDate: {
+    type: 'string',
+    description:
+      'Optional end for scoped calendar discovery. A date-only or non-midnight end includes its day; midnight is exclusive. Must be on or after startDate.',
+  },
+} satisfies Properties;
+
+export function selectTools(names?: readonly string[]): Tool[] {
+  const selectedNames = names?.map((name) => name.trim()).filter(Boolean);
+  if (!selectedNames?.length) return [...TOOLS];
+  const unknown = selectedNames.filter(
+    (name) => !TOOLS.some((tool) => tool.name === name),
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown MCP tools: ${unknown.join(', ')}. See --help for available tools.`,
+    );
+  }
+  return TOOLS.filter((tool) => selectedNames.includes(tool.name));
+}
 
 export const TOOLS: Tool[] = [
-  {
-    name: 'reminders_tasks',
-    description:
-      'Manages reminder tasks. Supports reading, creating, updating, and deleting reminders. Alarms, recurrence rules, and location-based triggers are read-only via this tool; configure them in Reminders.app.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: REMINDER_ACTIONS,
-          description: 'The operation to perform.',
-        },
-        // ID-based operations
-        id: {
-          type: 'string',
-          description:
-            'The unique identifier of the reminder (REQUIRED for update, delete; optional for read to get single reminder).',
-        },
-        // Creation/Update properties
-        title: {
-          type: 'string',
-          description:
-            'The title of the reminder (REQUIRED for create, optional for update).',
-        },
-        dueDate: {
-          type: 'string',
-          description:
-            "Due date. Use 'YYYY-MM-DD' (no time) for an all-day reminder, which Reminders.app shows as a day without a time. For a specific time use 'YYYY-MM-DD HH:mm:ss' (local time without timezone, e.g., '2025-11-04 18:00:00'). Also supports 'YYYY-MM-DDTHH:mm:ss' or ISO 8601 with timezone (e.g., '2025-10-30T04:00:00Z'). When no timezone is specified, the time is interpreted as local time.",
-        },
-        note: {
-          type: 'string',
-          description: 'Additional notes for the reminder.',
-        },
-        url: {
-          type: 'string',
-          description:
-            'A URL to associate with the reminder. This sets the EventKit URL field, which Reminders.app does not show in the note; it is visible to EventKit clients and to the Shortcut the CLI can invoke.',
-          format: 'uri',
-        },
-        completed: {
-          type: 'boolean',
-          description:
-            'Mark the reminder as completed/uncompleted (update only).',
-        },
-        priority: {
-          type: 'integer',
-          enum: [0, 1, 5, 9],
-          description:
-            'Priority level: 0=none, 1=high, 5=medium, 9=low (for create/update).',
-        },
-        targetList: {
-          type: 'string',
-          description: 'The name of the list for create or update operations.',
-        },
-        // Read filters
-        filterList: {
-          type: 'string',
-          description: 'Filter reminders by a specific list name.',
-        },
-        showCompleted: {
-          type: 'boolean',
-          description: 'Include completed reminders in the results.',
-          default: false,
-        },
-        search: {
-          type: 'string',
-          description:
-            'A search term to filter reminders by title or notes (applied in TS after fetch).',
-        },
-        dueWithin: {
-          type: 'string',
-          enum: DUE_WITHIN_OPTIONS,
-          description:
-            'Filter reminders by a due date range (applied in TS after fetch).',
-        },
-        startDate: {
-          type: 'string',
-          description:
-            "Start date. When action='update': sets the reminder's start date (the CLI cannot set it at create time) — 'YYYY-MM-DD' (no time) keeps it all-day, 'YYYY-MM-DD HH:mm:ss' or ISO 8601 set a time. When action='read': start of the due-date window, passed to the CLI as `--start` (start day inclusive). For read, only the date part is used — any time/zone component is truncated to the date prefix, so a window is resolved at day granularity. If only one of startDate/endDate is supplied for read, the other is filled in as a 14-day window.",
-        },
-        endDate: {
-          type: 'string',
-          description:
-            "End of the due-date window (READ-only, action='read'). Passed to the CLI as `--end`; the end day is exclusive. Only the date part is used — any time/zone component is truncated to the date prefix (day granularity). If only one of startDate/endDate is supplied, the other is filled in as a 14-day window.",
-        },
-        filterPriority: {
-          type: 'string',
-          enum: ['high', 'medium', 'low', 'none'],
-          description: 'Filter reminders by priority level.',
-        },
-        filterRecurring: {
-          type: 'boolean',
-          description: 'Filter to only show recurring reminders when true.',
-        },
-        filterLocationBased: {
-          type: 'boolean',
-          description:
-            'Filter to only show location-based reminders when true.',
-        },
-        // Tag filtering
-        filterTags: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Filter reminders by tags (must have ALL specified tags). Example: ["work", "urgent"]',
-        },
-        // Tag properties for create/update
-        tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Tags to set on the reminder (for create). Replaces any existing tags. Example: ["work", "urgent"]',
-        },
-        addTags: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Tags to add to the reminder (for update). Merges with existing tags. Example: ["followup"]',
-        },
-        removeTags: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Tags to remove from the reminder (for update). Example: ["urgent"]',
-        },
-        // Subtask properties for create
-        subtasks: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Initial subtasks to create with the reminder (for create action). Provide an array of subtask titles. Example: ["Buy milk", "Get eggs", "Pick up bread"]',
-        },
+  operationTool(
+    TOOL_NAMES.REMINDERS_TASKS_READ,
+    'read',
+    'Read or search reminders. Returns structured records; makes no changes.',
+    reminderFields,
+    [
+      'id',
+      'filterList',
+      'showCompleted',
+      'search',
+      'dueWithin',
+      'filterPriority',
+      'filterRecurring',
+      'filterLocationBased',
+      'filterTags',
+      'startDate',
+      'endDate',
+    ],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_TASKS_CREATE,
+    'create',
+    'Create a reminder, optionally with tags and checklist subtasks. Alarms, recurrence, and location triggers must be configured in Reminders.app.',
+    reminderFields,
+    [
+      'title',
+      'dueDate',
+      'note',
+      'url',
+      'targetList',
+      'priority',
+      'tags',
+      'subtasks',
+    ],
+    ['title'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_TASKS_UPDATE,
+    'update',
+    'Update an existing reminder, including completion and tags. Cross-list moves, alarms, recurrence, and location triggers are unsupported.',
+    reminderFields,
+    [
+      'id',
+      'title',
+      'startDate',
+      'dueDate',
+      'note',
+      'url',
+      'completed',
+      'targetList',
+      'priority',
+      'tags',
+      'addTags',
+      'removeTags',
+    ],
+    ['id'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_TASKS_DELETE,
+    'delete',
+    'Delete an existing reminder.',
+    reminderFields,
+    ['id'],
+    ['id'],
+  ),
+
+  operationTool(
+    TOOL_NAMES.REMINDERS_LISTS_READ,
+    'read',
+    'Read reminder lists. Makes no changes.',
+    listFields,
+    [],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_LISTS_CREATE,
+    'create',
+    'Create a reminder list.',
+    listFields,
+    ['name'],
+    ['name'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_LISTS_UPDATE,
+    'update',
+    'Rename a reminder list.',
+    listFields,
+    ['name', 'newName'],
+    ['name', 'newName'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_LISTS_DELETE,
+    'delete',
+    'Delete a reminder list.',
+    listFields,
+    ['name'],
+    ['name'],
+  ),
+
+  operationTool(
+    TOOL_NAMES.CALENDAR_EVENTS_READ,
+    'read',
+    'Read or search calendar events. Timed records include UTC startDateISO/endDateISO when the source timezone resolves unambiguously; use those fields to compare instants. Makes no changes.',
+    calendarReadFields,
+    ['id', 'filterCalendar', 'search', 'availability', 'startDate', 'endDate'],
+  ),
+  operationTool(
+    TOOL_NAMES.CALENDAR_EVENTS_CREATE,
+    'create',
+    'Create a calendar event. All-day is inferred from bare YYYY-MM-DD dates. URLs, alarms, and availability are supported; recurrence and structured locations must be configured in Calendar.app.',
+    {
+      ...calendarFields,
+      url: {
+        ...calendarFields.url,
+        type: 'string',
+        description:
+          'Event URL. Unsafe schemes and blocked network addresses are rejected.',
       },
-      required: ['action'],
     },
-  },
-  {
-    name: 'reminders_lists',
-    description:
-      'Manages reminder lists. Supports reading, creating, updating, and deleting reminder lists.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: LIST_ACTIONS,
-          description: 'The operation to perform on a list.',
-        },
-        name: {
-          type: 'string',
-          description:
-            'The current name of the list (for update, delete) or the name of the new list (for create).',
-        },
-        newName: {
-          type: 'string',
-          description: 'The new name for the list (for update).',
-        },
-      },
-      required: ['action'],
-    },
-  },
-  {
-    name: 'calendar_events',
-    description:
-      'Manages calendar events (time blocks). Supports reading, creating, updating, and deleting events. Event URLs, alarms, and scheduling availability can be written. Structured locations, all-day toggles, and recurrence rules remain read-only. All-day events are inferred from the date format ("YYYY-MM-DD" without a time component). On reads, startDate and endDate are wall-clock values in the event timeZone. Timed events also include startDateISO and endDateISO as UTC timestamps when the source zone resolves unambiguously; use those fields to schedule or compare events. All-day events do not include ISO timestamps.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: CALENDAR_ACTIONS,
-          description: 'The operation to perform.',
-        },
-        // ID-based operations
-        id: {
-          type: 'string',
-          description:
-            'The unique identifier of the event (REQUIRED for update, delete; optional for read to get single event). A read by id resolves the event directly through EventKit and needs no date range.',
-        },
-        // Creation/Update properties
-        title: {
-          type: 'string',
-          description:
-            'The title of the event (REQUIRED for create, optional for update).',
-        },
-        startDate: {
-          type: 'string',
-          description:
-            "Start date and time. RECOMMENDED format: 'YYYY-MM-DD HH:mm:ss' (local time, e.g., '2025-11-04 09:00:00'). Use 'YYYY-MM-DD' (no time) for all-day events. Also supports 'YYYY-MM-DDTHH:mm:ss' or ISO 8601 with timezone. For action='read', the CLI uses date-only bounds, so any time or timezone is truncated to the date prefix. If omitted and endDate is omitted, defaults to today; if only endDate is provided, startDate defaults to a 14-day window ending at that bound.",
-        },
-        endDate: {
-          type: 'string',
-          description:
-            "End date and time. RECOMMENDED format: 'YYYY-MM-DD HH:mm:ss' (local time). Use 'YYYY-MM-DD' (no time) for all-day events. Also supports 'YYYY-MM-DDTHH:mm:ss' or ISO 8601 with timezone. For action='read', the CLI uses date-only bounds: a date-only or non-midnight end includes its named day, while a midnight end is an exclusive boundary. If omitted and startDate is omitted, defaults to today + 14 days; if only startDate is provided, endDate defaults to startDate + 14 days.",
-        },
-        note: {
-          type: 'string',
-          description: 'Additional notes for the event.',
-        },
-        location: {
-          type: 'string',
-          description: 'Location text for the event.',
-        },
-        timezone: {
-          type: 'string',
-          description:
-            "IANA timezone identifier for a timed event (e.g., 'America/New_York', 'Asia/Shanghai'). Timed events' start and end times are interpreted in this timezone. All-day events ignore this option.",
-        },
-        url: {
-          type: ['string', 'null'],
-          description:
-            'Event URL. Supply null on update to remove the URL. Unsafe schemes and blocked network addresses are rejected.',
-        },
-        alarms: {
-          type: 'array',
-          items: { type: 'integer', minimum: 0 },
-          description:
-            'Minutes before the event start. Create sets these alarms; update replaces all alarms. Use an empty array or clearAlarms=true to remove all alarms.',
-        },
-        addAlarms: {
-          type: 'array',
-          items: { type: 'integer', minimum: 0 },
-          description:
-            'Update only. Append these minutes-before-start alarms without removing existing alarms.',
-        },
-        clearAlarms: {
-          type: 'boolean',
-          description: 'Update only. Remove all alarms from the event.',
-        },
-        availability: {
-          type: 'string',
-          enum: ['not-supported', 'busy', 'free', 'tentative', 'unavailable'],
-          description:
-            'Read filter, or create/update value. Writable values are busy, free, tentative, and unavailable. The selected calendar must support the requested value.',
-        },
-        span: {
-          type: 'string',
-          enum: ['this-event', 'future-events'],
-          description:
-            'Scope for changes to recurring events: this-event or future-events.',
-        },
-        attendees: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Update only. Email addresses to invite to an existing event. ' +
-            'Adding an attendee causes iCloud to send a real invitation, and ' +
-            'links the event so later moves and deletions propagate to them.',
-        },
-        occurrenceDate: {
-          type: 'string',
-          description:
-            'Delete only. Start of the single occurrence to except from a ' +
-            'recurring series, e.g. 2026-09-21T09:00:00. Without it, a ' +
-            'this-event delete can only ever except the series start.',
-        },
-        targetCalendar: {
-          type: 'string',
-          description:
-            'The name of the calendar for the create action. Events cannot be moved across calendars via update — delete and recreate instead.',
-        },
-        // Read filters
-        filterCalendar: {
-          type: 'string',
-          description: 'Filter events by a specific calendar name.',
-        },
-        search: {
-          type: 'string',
-          description:
-            'A search term to filter events by title, notes, or location (applied in TS after fetch).',
-        },
-      },
-      required: ['action'],
-    },
-  },
-  {
-    name: 'calendar_calendars',
-    description:
-      'Reads calendar collections. Use to inspect available calendars before creating or updating events. Without a date range, returns every calendar EventKit reports, each with its source (so two same-named calendars stay apart) and whether it allows content modifications. Optional date range filters return only calendars with events in that range.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['read'],
-          description: 'The operation to perform on calendars.',
-        },
-        startDate: {
-          type: 'string',
-          description:
-            "Optional range start for scoped calendar discovery. Format: 'YYYY-MM-DD', 'YYYY-MM-DD HH:mm:ss', or ISO 8601. The CLI uses date-only bounds, so any time or timezone is truncated to the date prefix. If only one of startDate/endDate is supplied, the other is filled in to make a 14-day window.",
-        },
-        endDate: {
-          type: 'string',
-          description:
-            'Optional range end for scoped calendar discovery. A date-only or non-midnight value includes its named day; a midnight value is an exclusive boundary. When used with startDate, only calendars with at least one event in the range are returned, each annotated with the in-range event count (recurring events count as one per instance). endDate must be on or after startDate.',
-        },
-      },
-      required: ['action'],
-    },
-  },
-  {
-    name: 'reminders_subtasks',
-    description:
-      'Manages subtasks/checklists within reminders. Subtasks are stored in the notes field and visible in the native Reminders app. Use this to create checklist items for a reminder.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: ['read', 'create', 'update', 'delete', 'toggle', 'reorder'],
-          description:
-            'The operation to perform: read (list subtasks), create (add new), update (modify), delete (remove), toggle (flip completion), reorder (change order).',
-        },
-        reminderId: {
-          type: 'string',
-          description:
-            'The unique identifier of the parent reminder (REQUIRED for all operations).',
-        },
-        subtaskId: {
-          type: 'string',
-          description:
-            'The unique identifier of the subtask (REQUIRED for update, delete, toggle).',
-        },
-        title: {
-          type: 'string',
-          description:
-            'The title of the subtask (REQUIRED for create, optional for update).',
-        },
-        completed: {
-          type: 'boolean',
-          description: 'The completion status of the subtask (for update).',
-        },
-        order: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Array of subtask IDs in desired order (REQUIRED for reorder). Must include all subtask IDs.',
-        },
-      },
-      required: ['action', 'reminderId'],
-    },
-  },
+    [
+      'title',
+      'startDate',
+      'endDate',
+      'note',
+      'location',
+      'timezone',
+      'url',
+      'alarms',
+      'availability',
+      'targetCalendar',
+    ],
+    ['title', 'startDate', 'endDate'],
+  ),
+  operationTool(
+    TOOL_NAMES.CALENDAR_EVENTS_UPDATE,
+    'update',
+    'Update an existing event. Attendee invitations must be updated alone. Cross-calendar moves, all-day toggles, recurrence, and structured locations are unsupported.',
+    calendarFields,
+    [
+      'id',
+      'title',
+      'startDate',
+      'endDate',
+      'note',
+      'location',
+      'timezone',
+      'url',
+      'alarms',
+      'addAlarms',
+      'clearAlarms',
+      'availability',
+      'attendees',
+    ],
+    ['id'],
+  ),
+  operationTool(
+    TOOL_NAMES.CALENDAR_EVENTS_DELETE,
+    'delete',
+    'Delete an event or recurring occurrence. Without occurrenceDate, a this-event delete targets the series start. Deleting a specific occurrence needs iCloud CalDAV credentials.',
+    calendarFields,
+    ['id', 'span', 'occurrenceDate'],
+    ['id'],
+  ),
+  operationTool(
+    TOOL_NAMES.CALENDAR_CALENDARS_READ,
+    'read',
+    'Read calendar collections with source and write permissions. Without a date range, returns every calendar; with a range, returns calendars containing events and their event counts. Makes no changes.',
+    calendarCollectionFields,
+    ['startDate', 'endDate'],
+  ),
+
+  operationTool(
+    TOOL_NAMES.REMINDERS_SUBTASKS_READ,
+    'read',
+    'Read checklist subtasks from a reminder. Makes no changes.',
+    subtaskFields,
+    ['reminderId'],
+    ['reminderId'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_SUBTASKS_CREATE,
+    'create',
+    'Append a checklist subtask to an existing reminder. Subtasks are stored in the reminder notes.',
+    subtaskFields,
+    ['reminderId', 'title'],
+    ['reminderId', 'title'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_SUBTASKS_UPDATE,
+    'update',
+    'Update the title or completion status of a checklist subtask.',
+    subtaskFields,
+    ['reminderId', 'subtaskId', 'title', 'completed'],
+    ['reminderId', 'subtaskId'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_SUBTASKS_DELETE,
+    'delete',
+    'Delete a checklist subtask from a reminder.',
+    subtaskFields,
+    ['reminderId', 'subtaskId'],
+    ['reminderId', 'subtaskId'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_SUBTASKS_TOGGLE,
+    'toggle',
+    'Toggle the completion status of a checklist subtask.',
+    subtaskFields,
+    ['reminderId', 'subtaskId'],
+    ['reminderId', 'subtaskId'],
+  ),
+  operationTool(
+    TOOL_NAMES.REMINDERS_SUBTASKS_REORDER,
+    'reorder',
+    'Reorder all checklist subtasks in a reminder.',
+    subtaskFields,
+    ['reminderId', 'order'],
+    ['reminderId', 'order'],
+  ),
 ];

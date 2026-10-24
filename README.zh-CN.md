@@ -8,6 +8,8 @@
 
 EventKit 后端为独立的 [`event`](https://github.com/FradSer/event) Swift CLI，以 git submodule 形式 vendor，在 `pnpm install` 时构建为 `bin/event`，无需另行 `brew install`。v1.5.0 后端切换及 `event` 尚未暴露的写入字段列表见 [docs/migration-to-event-cli.md](docs/migration-to-event-cli.md)。
 
+此 fork 将原有 5 个工具拆成 **19 个独立操作工具**，操作由工具名确定，不再传入 `action`。旧的 5 个合并工具名不再接受调用。请使用下方本地构建方式加载此 fork；`npx mcp-server-apple-events` 仍会启动上游发布版本。
+
 ## 目录
 
 - [功能特性](#功能特性)
@@ -45,12 +47,44 @@ npm 发布包自带预构建的通用签名 `bin/event` 二进制，使用 `npx`
 ## 快速开始
 
 ```bash
-npx mcp-server-apple-events
+cd /absolute/path/to/mcp-server-apple-events-fork
+pnpm install --frozen-lockfile
+pnpm run build:ts
+node dist/index.js
 ```
 
 ## 配置说明
 
-将服务器添加到你的 MCP 客户端。下面的 `npx` 形式适用于所有客户端；本地构建时，将 `command`/`args` 改为指向 `dist/index.js` 的 `node`。
+将服务器添加到你的 MCP 客户端，启动命令指向此工作副本构建出的 `dist/index.js`。随后重启 MCP 连接，让客户端刷新工具列表。
+
+### 启动时选择工具
+
+通过 `--tools` 指定此 MCP 实例暴露的工具。支持逗号分隔或重复传入，工具名见下方表格，也可运行 `node dist/index.js --help` 查看。
+
+```bash
+node dist/index.js --tools calendar_events_create
+node dist/index.js --tools calendar_events_create,calendar_calendars_read
+node dist/index.js --tools calendar_events_create --tools calendar_calendars_read
+```
+
+不传 `--tools`、单独传 `--tools`、传入空字符串或仅含空白/逗号时，均默认暴露全部 19 个工具。空项会被忽略，重复名称会合并，未知名称会导致启动失败。工具选择在实例启动时固定，修改配置后需重启连接。未选工具既不出现在工具列表中，也不能通过直接调用执行；初始化说明仅列出已启用工具。`--require-write-confirmation` 可与工具选择一起使用。
+
+例如只允许新增日历事件：
+
+```json
+{
+  "mcpServers": {
+    "apple-reminders": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/mcp-server-apple-events-fork/dist/index.js",
+        "--tools",
+        "calendar_events_create"
+      ]
+    }
+  }
+}
+```
 
 ### Cursor
 
@@ -60,8 +94,8 @@ Settings → MCP → Add new global MCP server：
 {
   "mcpServers": {
     "apple-reminders": {
-      "command": "npx",
-      "args": ["-y", "mcp-server-apple-events"]
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-server-apple-events-fork/dist/index.js"]
     }
   }
 }
@@ -73,8 +107,8 @@ Settings → Tools → "+"，然后：
 
 - 类型：`stdio`
 - ID：`apple-reminders`
-- 命令：`mcp-server-apple-events`
-- 参数：（留空）
+- 命令：`node`
+- 参数：`/absolute/path/to/mcp-server-apple-events-fork/dist/index.js`
 
 ### Claude Desktop
 
@@ -84,8 +118,8 @@ Settings → Tools → "+"，然后：
 {
   "mcpServers": {
     "apple-reminders": {
-      "command": "npx",
-      "args": ["-y", "mcp-server-apple-events"]
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-server-apple-events-fork/dist/index.js"]
     }
   }
 }
@@ -163,8 +197,8 @@ xcrun swiftc --version    # 应显示 Apple Swift version 6.3 或更高
 
 ```json
 {
-  "command": "npx",
-  "args": ["-y", "mcp-server-apple-events", "--require-write-confirmation"]
+  "command": "node",
+  "args": ["/absolute/path/to/mcp-server-apple-events-fork/dist/index.js", "--require-write-confirmation"]
 }
 ```
 
@@ -178,62 +212,65 @@ xcrun swiftc --version    # 应显示 Apple Swift version 6.3 或更高
 
 ## 可用的 MCP 工具
 
-按服务域暴露的工具对应 Apple Reminders 与 Calendar 的不同资源。所有工具都接受一个 `action` 字段以及按操作区分的参数（MCP 客户端会自动内省完整 Zod schema，此处仅列出操作）。日期字段接受 `YYYY-MM-DD`、`YYYY-MM-DD HH:mm:ss`（本地时间）或带时区的 ISO 8601。
+每个操作对应独立工具，只接受该操作所需的参数，不再接收 `action`。服务器同时拒绝旧合并工具名和未声明参数，传入 `action` 也无法切换操作。
 
-| 工具 | 操作 | 说明 |
-| --- | --- | --- |
-| `reminders_tasks` | `read`、`create`、`update`、`delete` | 优先级、标签、子任务。`startDate` 通过 `update` 设置，`create` 不可用。不支持跨列表搬移。 |
-| `reminders_subtasks` | `read`、`create`、`update`、`delete`、`toggle`、`reorder` | 存储在备注字段中（Reminders.app 中人类可读）。 |
-| `reminders_lists` | `read`、`create`、`update`、`delete` | 通过 `name` → `newName` 重命名。 |
-| `calendar_events` | `read`、`create`、`update`、`delete` | 读取时，`startDate` 和 `endDate` 是事件 `timeZone` 中的墙上时间；定时事件还会在时区可唯一解析时提供 UTC 时间戳 `startDateISO` 和 `endDateISO`。安排或比较事件时请使用 ISO 字段。全天事件不提供这两个字段。All-day 由日期格式推断。不支持跨日历搬移。`span` 限定循环事件删除范围。`attendees`（update）邀请与会者；`occurrenceDate`（delete）排除循环序列中的单次实例——两者都需要额外配置，见[与会者与单次实例](#与会者与单次实例)。 |
-| `calendar_calendars` | `read` | 不传日期范围时返回 EventKit 报告的全部日历，并附上 `source` 与是否可写。传 `startDate`/`endDate` 时只返回该范围内有事件的日历，并附事件数。 |
+| 资源 | 读取 | 新增 | 修改 | 删除 | 其他写操作 |
+| --- | --- | --- | --- | --- | --- |
+| 提醒事项 | `reminders_tasks_read` | `reminders_tasks_create` | `reminders_tasks_update` | `reminders_tasks_delete` | — |
+| 提醒列表 | `reminders_lists_read` | `reminders_lists_create` | `reminders_lists_update` | `reminders_lists_delete` | — |
+| 清单子任务 | `reminders_subtasks_read` | `reminders_subtasks_create` | `reminders_subtasks_update` | `reminders_subtasks_delete` | `reminders_subtasks_toggle`、`reminders_subtasks_reorder` |
+| 日历事件 | `calendar_events_read` | `calendar_events_create` | `calendar_events_update` | `calendar_events_delete` | — |
+| 日历列表 | `calendar_calendars_read` | — | — | — | — |
 
-调用示例：
+通过 `--tools` 在服务端选择工具，宿主也可进一步限制。例如只新增日历事件时选择 `calendar_events_create`；如需选择日历，可额外选择 `calendar_calendars_read`，检查已有事件则选择 `calendar_events_read`。修改、删除、提醒事项、子任务切换和重排都可单独选择。annotations 用于描述行为；服务端的工具选择独立于宿主授权。EventKit 后端仍需要 macOS 的完整日历访问权限。
+
+`_read` 工具不修改数据，create 工具新增数据，update/delete/toggle/reorder 工具会改变已有数据。原有 `--require-write-confirmation` 继续覆盖全部写操作，默认仍不弹出服务器确认表单。切换到此 fork 后，需要刷新客户端工具列表和已保存的工具白名单；旧名称不保留兼容入口。
+
+日期接受 `YYYY-MM-DD`、`YYYY-MM-DD HH:mm:ss`（本地时间）或带时区的 ISO 8601。纯日期用于创建全天事件。读取定时事件时，时区可唯一解析则提供 `startDateISO`/`endDateISO`。新增日历事件支持 URL、提醒时间和忙闲状态；循环规则与结构化地点仍需在 Calendar.app 配置，不支持跨日历搬移。新增提醒事项支持标签和子任务，提醒事项的 `startDate` 和完成状态通过修改工具设置。子任务存储在父提醒的备注中。
+
+MCP 调用示例：
 
 ```json
 {
-  "action": "create",
-  "title": "买杂货",
-  "dueDate": "2024-03-25 18:00:00",
-  "targetList": "购物",
-  "note": "别忘了牛奶和鸡蛋",
-  "priority": 1,
-  "tags": ["shopping", "errands"],
-  "subtasks": ["牛奶", "鸡蛋", "面包"]
+  "name": "calendar_events_create",
+  "arguments": {
+    "title": "组会",
+    "startDate": "2026-11-02 09:00:00",
+    "endDate": "2026-11-02 09:30:00",
+    "targetCalendar": "工作",
+    "timezone": "Asia/Shanghai",
+    "alarms": [15]
+  }
 }
 ```
 
 ```json
-{ "action": "read", "filterList": "工作", "dueWithin": "today", "filterPriority": "high", "filterTags": ["urgent"] }
+{"name":"reminders_tasks_create","arguments":{"title":"买杂货","targetList":"购物","subtasks":["牛奶","鸡蛋"]}}
 ```
 
 ```json
-{ "action": "update", "id": "reminder-123", "completed": false, "addTags": ["followup"] }
+{"name":"reminders_tasks_read","arguments":{"filterList":"工作","dueWithin":"today","filterPriority":"high"}}
 ```
 
 ```json
-{ "action": "toggle", "reminderId": "reminder-123", "subtaskId": "a1b2c3d4" }
+{"name":"reminders_lists_update","arguments":{"name":"项目 Alpha","newName":"项目 Beta"}}
 ```
 
 ```json
-{ "action": "create", "name": "项目 Alpha" }
+{"name":"reminders_subtasks_toggle","arguments":{"reminderId":"reminder-123","subtaskId":"a1b2c3d4"}}
 ```
 
 ```json
-{ "action": "create", "title": "Team standup", "startDate": "2026-05-04 09:00:00", "endDate": "2026-05-04 09:30:00", "targetCalendar": "工作" }
+{"name":"calendar_events_update","arguments":{"id":"event-123","attendees":["alex@example.com"]}}
 ```
 
 ```json
-{ "action": "update", "id": "event-123", "attendees": ["alex@example.com", "sam@example.com"] }
-```
-
-```json
-{ "action": "delete", "id": "event-123", "occurrenceDate": "2026-09-21T09:00:00" }
+{"name":"calendar_events_delete","arguments":{"id":"event-123","occurrenceDate":"2026-11-09T09:00:00"}}
 ```
 
 ### 与会者与单次实例
 
-这两个 `calendar_events` 参数是唯一不经过 `event` CLI 的写操作，因为 EventKit 本身无法表达它们。两者都需要服务器其余部分不需要的额外配置。
+`calendar_events_update` 的 `attendees` 参数与 `calendar_events_delete` 的 `occurrenceDate` 参数是唯一不经过 `event` CLI 的写操作，因为 EventKit 本身无法表达它们。两者都需要服务器其余部分不需要的额外配置。
 
 **`attendees`（update）**——邀请电子邮件地址加入已有事件。`EKCalendarItem.attendees` 在 macOS SDK 中是只读的，且 EventKit 没有任何发送邀请的 API，因此该写操作走 Calendar.app 的脚本接口；在本地写入与会者正是促使 iCloud 发送邀请的动作。
 

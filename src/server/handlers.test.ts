@@ -263,7 +263,7 @@ describe('Server Handlers', () => {
     it('should handle null arguments', async () => {
       const request = {
         params: {
-          name: 'reminders_tasks',
+          name: 'reminders_tasks_read',
           arguments: null,
         },
       };

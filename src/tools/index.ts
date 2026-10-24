@@ -1,8 +1,3 @@
-/**
- * tools/index.ts
- * Tool routing: normalizes names, dispatches to handlers
- */
-
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type {
   CalendarsToolArgs,
@@ -42,47 +37,42 @@ type ToolArgs =
   | CalendarToolArgs
   | CalendarsToolArgs;
 
-export type ConfirmWrite = (name: string, args: ToolArgs) => Promise<boolean>;
+export type ToolInput =
+  | Omit<RemindersToolArgs, 'action'>
+  | Omit<ListsToolArgs, 'action'>
+  | Omit<SubtasksToolArgs, 'action'>
+  | Omit<CalendarToolArgs, 'action'>
+  | Omit<CalendarsToolArgs, 'action'>;
 
+export type ConfirmWrite = (name: string, args: ToolArgs) => Promise<boolean>;
+type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
 type ToolRouter = (
-  args?: ToolArgs,
+  args?: ToolInput,
   confirmWrite?: ConfirmWrite,
 ) => Promise<CallToolResult>;
 
-type ActionHandler<TArgs extends { action: string }> = (
-  args: TArgs,
-) => Promise<CallToolResult>;
-
-type RoutedToolName =
-  | 'reminders_tasks'
-  | 'reminders_lists'
-  | 'reminders_subtasks'
-  | 'calendar_events';
-type ToolName = RoutedToolName | 'calendar_calendars';
-
-/**
- * Creates an action router for tools with multiple actions
- */
-const createActionRouter = <TArgs extends ToolArgs>(
-  toolName: RoutedToolName,
-  handlerMap: Record<TArgs['action'], ActionHandler<TArgs>>,
-): ToolRouter => {
-  return async (args?: ToolArgs, confirmWrite?: ConfirmWrite) => {
-    if (!args) {
-      return createErrorResponse('No arguments provided');
-    }
-
-    // Bind approval to a snapshot so caller changes during confirmation cannot
-    // change the operation that the user reviewed.
-    const typedArgs = structuredClone(args) as TArgs;
-    const action = typedArgs.action;
-
-    if (!(action in handlerMap)) {
+function createOperationRouter<TArgs extends ToolArgs>(
+  toolName: ToolName,
+  action: TArgs['action'],
+  handler: (args: TArgs) => Promise<CallToolResult>,
+): ToolRouter {
+  return async (args = {}, confirmWrite) => {
+    const allowedFields = Object.keys(
+      TOOLS.find((tool) => tool.name === toolName)?.inputSchema.properties ??
+        {},
+    );
+    const unknownFields = Object.keys(args).filter(
+      (key) => !allowedFields.includes(key),
+    );
+    if (unknownFields.length > 0) {
       return createErrorResponse(
-        MESSAGES.ERROR.UNKNOWN_ACTION(toolName, String(action)),
+        `Unknown arguments for ${toolName}: ${unknownFields.join(', ')}`,
       );
     }
 
+    // The tool name fixes the operation; caller input cannot select another one.
+    // Snapshot before confirmation so approval applies to the executed values.
+    const typedArgs = { ...structuredClone(args), action } as TArgs;
     if (action !== 'read') {
       let confirmed = false;
       try {
@@ -98,62 +88,114 @@ const createActionRouter = <TArgs extends ToolArgs>(
         );
       }
     }
-
-    const handler = handlerMap[action as keyof typeof handlerMap];
     return handler(typedArgs);
   };
-};
+}
 
 const TOOL_ROUTER_MAP = {
-  [TOOL_NAMES.REMINDERS_TASKS]: createActionRouter<RemindersToolArgs>(
-    TOOL_NAMES.REMINDERS_TASKS,
-    {
-      read: (reminderArgs) => handleReadReminders(reminderArgs),
-      create: (reminderArgs) => handleCreateReminder(reminderArgs),
-      update: (reminderArgs) => handleUpdateReminder(reminderArgs),
-      delete: (reminderArgs) => handleDeleteReminder(reminderArgs),
-    },
+  [TOOL_NAMES.REMINDERS_TASKS_READ]: createOperationRouter<RemindersToolArgs>(
+    TOOL_NAMES.REMINDERS_TASKS_READ,
+    'read',
+    handleReadReminders,
   ),
-  [TOOL_NAMES.REMINDERS_LISTS]: createActionRouter<ListsToolArgs>(
-    TOOL_NAMES.REMINDERS_LISTS,
-    {
-      read: () => handleReadReminderLists(),
-      create: (listArgs) => handleCreateReminderList(listArgs),
-      update: (listArgs) => handleUpdateReminderList(listArgs),
-      delete: (listArgs) => handleDeleteReminderList(listArgs),
-    },
+  [TOOL_NAMES.REMINDERS_TASKS_CREATE]: createOperationRouter<RemindersToolArgs>(
+    TOOL_NAMES.REMINDERS_TASKS_CREATE,
+    'create',
+    handleCreateReminder,
   ),
-  [TOOL_NAMES.REMINDERS_SUBTASKS]: createActionRouter<SubtasksToolArgs>(
-    TOOL_NAMES.REMINDERS_SUBTASKS,
-    {
-      read: (subtaskArgs) => handleReadSubtasks(subtaskArgs),
-      create: (subtaskArgs) => handleCreateSubtask(subtaskArgs),
-      update: (subtaskArgs) => handleUpdateSubtask(subtaskArgs),
-      delete: (subtaskArgs) => handleDeleteSubtask(subtaskArgs),
-      toggle: (subtaskArgs) => handleToggleSubtask(subtaskArgs),
-      reorder: (subtaskArgs) => handleReorderSubtasks(subtaskArgs),
-    },
+  [TOOL_NAMES.REMINDERS_TASKS_UPDATE]: createOperationRouter<RemindersToolArgs>(
+    TOOL_NAMES.REMINDERS_TASKS_UPDATE,
+    'update',
+    handleUpdateReminder,
   ),
-  [TOOL_NAMES.CALENDAR_EVENTS]: createActionRouter<CalendarToolArgs>(
-    TOOL_NAMES.CALENDAR_EVENTS,
-    {
-      read: (calendarArgs) => handleReadCalendarEvents(calendarArgs),
-      create: (calendarArgs) => handleCreateCalendarEvent(calendarArgs),
-      update: (calendarArgs) => handleUpdateCalendarEvent(calendarArgs),
-      delete: (calendarArgs) => handleDeleteCalendarEvent(calendarArgs),
-    },
+  [TOOL_NAMES.REMINDERS_TASKS_DELETE]: createOperationRouter<RemindersToolArgs>(
+    TOOL_NAMES.REMINDERS_TASKS_DELETE,
+    'delete',
+    handleDeleteReminder,
   ),
-  [TOOL_NAMES.CALENDAR_CALENDARS]: async (args?: ToolArgs) => {
-    return handleReadCalendars(args as CalendarsToolArgs | undefined);
-  },
+  [TOOL_NAMES.REMINDERS_LISTS_READ]: createOperationRouter<ListsToolArgs>(
+    TOOL_NAMES.REMINDERS_LISTS_READ,
+    'read',
+    () => handleReadReminderLists(),
+  ),
+  [TOOL_NAMES.REMINDERS_LISTS_CREATE]: createOperationRouter<ListsToolArgs>(
+    TOOL_NAMES.REMINDERS_LISTS_CREATE,
+    'create',
+    handleCreateReminderList,
+  ),
+  [TOOL_NAMES.REMINDERS_LISTS_UPDATE]: createOperationRouter<ListsToolArgs>(
+    TOOL_NAMES.REMINDERS_LISTS_UPDATE,
+    'update',
+    handleUpdateReminderList,
+  ),
+  [TOOL_NAMES.REMINDERS_LISTS_DELETE]: createOperationRouter<ListsToolArgs>(
+    TOOL_NAMES.REMINDERS_LISTS_DELETE,
+    'delete',
+    handleDeleteReminderList,
+  ),
+  [TOOL_NAMES.CALENDAR_EVENTS_READ]: createOperationRouter<CalendarToolArgs>(
+    TOOL_NAMES.CALENDAR_EVENTS_READ,
+    'read',
+    handleReadCalendarEvents,
+  ),
+  [TOOL_NAMES.CALENDAR_EVENTS_CREATE]: createOperationRouter<CalendarToolArgs>(
+    TOOL_NAMES.CALENDAR_EVENTS_CREATE,
+    'create',
+    handleCreateCalendarEvent,
+  ),
+  [TOOL_NAMES.CALENDAR_EVENTS_UPDATE]: createOperationRouter<CalendarToolArgs>(
+    TOOL_NAMES.CALENDAR_EVENTS_UPDATE,
+    'update',
+    handleUpdateCalendarEvent,
+  ),
+  [TOOL_NAMES.CALENDAR_EVENTS_DELETE]: createOperationRouter<CalendarToolArgs>(
+    TOOL_NAMES.CALENDAR_EVENTS_DELETE,
+    'delete',
+    handleDeleteCalendarEvent,
+  ),
+  [TOOL_NAMES.CALENDAR_CALENDARS_READ]:
+    createOperationRouter<CalendarsToolArgs>(
+      TOOL_NAMES.CALENDAR_CALENDARS_READ,
+      'read',
+      handleReadCalendars,
+    ),
+  [TOOL_NAMES.REMINDERS_SUBTASKS_READ]: createOperationRouter<SubtasksToolArgs>(
+    TOOL_NAMES.REMINDERS_SUBTASKS_READ,
+    'read',
+    handleReadSubtasks,
+  ),
+  [TOOL_NAMES.REMINDERS_SUBTASKS_CREATE]:
+    createOperationRouter<SubtasksToolArgs>(
+      TOOL_NAMES.REMINDERS_SUBTASKS_CREATE,
+      'create',
+      handleCreateSubtask,
+    ),
+  [TOOL_NAMES.REMINDERS_SUBTASKS_UPDATE]:
+    createOperationRouter<SubtasksToolArgs>(
+      TOOL_NAMES.REMINDERS_SUBTASKS_UPDATE,
+      'update',
+      handleUpdateSubtask,
+    ),
+  [TOOL_NAMES.REMINDERS_SUBTASKS_DELETE]:
+    createOperationRouter<SubtasksToolArgs>(
+      TOOL_NAMES.REMINDERS_SUBTASKS_DELETE,
+      'delete',
+      handleDeleteSubtask,
+    ),
+  [TOOL_NAMES.REMINDERS_SUBTASKS_TOGGLE]:
+    createOperationRouter<SubtasksToolArgs>(
+      TOOL_NAMES.REMINDERS_SUBTASKS_TOGGLE,
+      'toggle',
+      handleToggleSubtask,
+    ),
+  [TOOL_NAMES.REMINDERS_SUBTASKS_REORDER]:
+    createOperationRouter<SubtasksToolArgs>(
+      TOOL_NAMES.REMINDERS_SUBTASKS_REORDER,
+      'reorder',
+      handleReorderSubtasks,
+    ),
 } satisfies Record<ToolName, ToolRouter>;
 
-const isManagedToolName = (value: string): value is ToolName =>
-  value in TOOL_ROUTER_MAP;
-
-/**
- * Creates an error response with the given message
- */
 function createErrorResponse(message: string): CallToolResult {
   return {
     content: [{ type: 'text', text: message }],
@@ -163,15 +205,13 @@ function createErrorResponse(message: string): CallToolResult {
 
 export async function handleToolCall(
   name: string,
-  args?: ToolArgs,
+  args?: ToolInput,
   confirmWrite?: ConfirmWrite,
 ): Promise<CallToolResult> {
-  if (!isManagedToolName(name)) {
+  if (!Object.keys(TOOL_ROUTER_MAP).includes(name)) {
     return createErrorResponse(MESSAGES.ERROR.UNKNOWN_TOOL(name));
   }
-
-  const router = TOOL_ROUTER_MAP[name];
-  return router(args, confirmWrite);
+  return TOOL_ROUTER_MAP[name as ToolName](args, confirmWrite);
 }
 
 export { TOOLS };

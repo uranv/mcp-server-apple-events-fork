@@ -32,20 +32,94 @@ jest.mock('../tools/handlers/index.js', () => ({
 }));
 
 const writes = [
-  ['reminders_tasks', 'create', handlers.handleCreateReminder],
-  ['reminders_tasks', 'update', handlers.handleUpdateReminder],
-  ['reminders_tasks', 'delete', handlers.handleDeleteReminder],
-  ['reminders_lists', 'create', handlers.handleCreateReminderList],
-  ['reminders_lists', 'update', handlers.handleUpdateReminderList],
-  ['reminders_lists', 'delete', handlers.handleDeleteReminderList],
-  ['calendar_events', 'create', handlers.handleCreateCalendarEvent],
-  ['calendar_events', 'update', handlers.handleUpdateCalendarEvent],
-  ['calendar_events', 'delete', handlers.handleDeleteCalendarEvent],
-  ['reminders_subtasks', 'create', handlers.handleCreateSubtask],
-  ['reminders_subtasks', 'update', handlers.handleUpdateSubtask],
-  ['reminders_subtasks', 'delete', handlers.handleDeleteSubtask],
-  ['reminders_subtasks', 'toggle', handlers.handleToggleSubtask],
-  ['reminders_subtasks', 'reorder', handlers.handleReorderSubtasks],
+  [
+    'reminders_tasks_create',
+    'create',
+    handlers.handleCreateReminder,
+    { title: 'Example' },
+  ],
+  [
+    'reminders_tasks_update',
+    'update',
+    handlers.handleUpdateReminder,
+    { id: 'example', title: 'Changed' },
+  ],
+  [
+    'reminders_tasks_delete',
+    'delete',
+    handlers.handleDeleteReminder,
+    { id: 'example' },
+  ],
+  [
+    'reminders_lists_create',
+    'create',
+    handlers.handleCreateReminderList,
+    { name: 'Example' },
+  ],
+  [
+    'reminders_lists_update',
+    'update',
+    handlers.handleUpdateReminderList,
+    { name: 'Example', newName: 'Changed' },
+  ],
+  [
+    'reminders_lists_delete',
+    'delete',
+    handlers.handleDeleteReminderList,
+    { name: 'Example' },
+  ],
+  [
+    'calendar_events_create',
+    'create',
+    handlers.handleCreateCalendarEvent,
+    {
+      title: 'Example',
+      startDate: '2026-11-02 14:00:00',
+      endDate: '2026-11-02 15:00:00',
+    },
+  ],
+  [
+    'calendar_events_update',
+    'update',
+    handlers.handleUpdateCalendarEvent,
+    { id: 'example', title: 'Changed' },
+  ],
+  [
+    'calendar_events_delete',
+    'delete',
+    handlers.handleDeleteCalendarEvent,
+    { id: 'example' },
+  ],
+  [
+    'reminders_subtasks_create',
+    'create',
+    handlers.handleCreateSubtask,
+    { reminderId: 'parent', title: 'Example' },
+  ],
+  [
+    'reminders_subtasks_update',
+    'update',
+    handlers.handleUpdateSubtask,
+    { reminderId: 'parent', subtaskId: 'subtask', title: 'Changed' },
+  ],
+  [
+    'reminders_subtasks_delete',
+    'delete',
+    handlers.handleDeleteSubtask,
+    { reminderId: 'parent', subtaskId: 'subtask' },
+  ],
+  [
+    'reminders_subtasks_toggle',
+    'toggle',
+    handlers.handleToggleSubtask,
+    { reminderId: 'parent', subtaskId: 'subtask' },
+  ],
+  [
+    'reminders_subtasks_reorder',
+    'reorder',
+    handlers.handleReorderSubtasks,
+    { reminderId: 'parent', order: ['first', 'second'] },
+  ],
 ] as const;
 
 const success: CallToolResult = {
@@ -102,17 +176,11 @@ describe('write confirmation over MCP', () => {
 
   it.each(
     writes,
-  )('dispatches %s/%s by default without forms', async (name, action, handler) => {
+  )('dispatches %s/%s by default without forms', async (name, action, handler, args) => {
     await connect(false, {});
-    const args = {
-      action,
-      title: 'Example',
-      id: 'example',
-      reminderId: 'parent',
-    };
     const result = await client.callTool({ name, arguments: args });
     expect(result.isError).toBe(false);
-    expect(handler).toHaveBeenCalledWith(args);
+    expect(handler).toHaveBeenCalledWith({ ...args, action });
     expect(confirm).not.toHaveBeenCalled();
     expect(client.getInstructions()).toContain(
       'Server write confirmation is disabled',
@@ -122,8 +190,8 @@ describe('write confirmation over MCP', () => {
   it('skips elicitation even when the default host supports forms', async () => {
     await connect(true, {});
     const result = await client.callTool({
-      name: 'reminders_tasks',
-      arguments: { action: 'delete', id: 'example' },
+      name: 'reminders_tasks_delete',
+      arguments: { id: 'example' },
     });
     expect(result.isError).toBe(false);
     expect(confirm).not.toHaveBeenCalled();
@@ -140,8 +208,8 @@ describe('write confirmation over MCP', () => {
       await other.connect(b);
       await otherClient.connect(a);
       const request = {
-        name: 'reminders_tasks',
-        arguments: { action: 'delete', id: 'example' },
+        name: 'reminders_tasks_delete',
+        arguments: { id: 'example' },
       };
       expect((await otherClient.callTool(request)).isError).toBe(false);
       expect((await client.callTool(request)).isError).toBe(true);
@@ -158,10 +226,10 @@ describe('write confirmation over MCP', () => {
     }
   });
 
-  it('rejects an unknown action before confirmation or execution', async () => {
+  it('rejects an action argument before confirmation or execution', async () => {
     await connect(false, {});
     const result = await client.callTool({
-      name: 'reminders_tasks',
+      name: 'reminders_tasks_create',
       arguments: { action: 'invalid' },
     });
     expect(result.isError).toBe(true);
@@ -171,18 +239,11 @@ describe('write confirmation over MCP', () => {
 
   it.each(
     writes,
-  )('blocks %s/%s when the host cannot confirm', async (name, action, handler) => {
+  )('blocks %s/%s when the host cannot confirm', async (name, _action, handler, args) => {
     await connect(false);
     const result = await client.callTool({
       name,
-      arguments: {
-        action,
-        title: forgedText,
-        id: 'private-item',
-        confirmed: true,
-        requireWriteConfirmation: false,
-        config: { requireWriteConfirmation: false },
-      },
+      arguments: args,
     });
     expect(result.isError).toBe(true);
     expect(handler).not.toHaveBeenCalled();
@@ -199,9 +260,8 @@ describe('write confirmation over MCP', () => {
     await connect();
     confirm.mockResolvedValue(response);
     const result = await client.callTool({
-      name: 'calendar_events',
+      name: 'calendar_events_update',
       arguments: {
-        action: 'update',
         id: 'private-item',
         attendees: ['attacker@example.com'],
       },
@@ -214,8 +274,8 @@ describe('write confirmation over MCP', () => {
     await connect();
     confirm.mockRejectedValue(new Error('transport failed'));
     const result = await client.callTool({
-      name: 'reminders_tasks',
-      arguments: { action: 'delete', id: 'private-item' },
+      name: 'reminders_tasks_delete',
+      arguments: { id: 'private-item' },
     });
     expect(result.isError).toBe(true);
     expect(handlers.handleDeleteReminder).not.toHaveBeenCalled();
@@ -236,8 +296,8 @@ describe('write confirmation over MCP', () => {
       return approval;
     });
     const pending = client.callTool({
-      name: 'reminders_tasks',
-      arguments: { action: 'delete', id: 'example' },
+      name: 'reminders_tasks_delete',
+      arguments: { id: 'example' },
     });
     const rejected = expect(pending).rejects.toThrow();
     await elicited;
@@ -260,8 +320,8 @@ describe('write confirmation over MCP', () => {
     await expect(
       client.callTool(
         {
-          name: 'reminders_tasks',
-          arguments: { action: 'delete', id: 'example' },
+          name: 'reminders_tasks_delete',
+          arguments: { id: 'example' },
         },
         undefined,
         { signal: abort.signal },
@@ -274,9 +334,8 @@ describe('write confirmation over MCP', () => {
   it('shows the exact arguments and requires a new confirmation for each call', async () => {
     await connect();
     const request = {
-      name: 'calendar_events',
+      name: 'calendar_events_update',
       arguments: {
-        action: 'update',
         id: 'private-item',
         attendees: ['attacker@example.com'],
         note: forgedText,
@@ -291,7 +350,16 @@ describe('write confirmation over MCP', () => {
         },
       });
       const message = elicitation.params.message;
-      expect(message).toContain(JSON.stringify(request, null, 2));
+      expect(message).toContain(
+        JSON.stringify(
+          {
+            ...request,
+            arguments: { ...request.arguments, action: 'update' },
+          },
+          null,
+          2,
+        ),
+      );
       return confirm();
     });
     confirm.mockResolvedValueOnce({
@@ -301,9 +369,10 @@ describe('write confirmation over MCP', () => {
     const approved = await client.callTool(request);
     expect(approved.isError).toBe(false);
     expect(handlers.handleUpdateCalendarEvent).toHaveBeenCalledTimes(1);
-    expect(handlers.handleUpdateCalendarEvent).toHaveBeenCalledWith(
-      request.arguments,
-    );
+    expect(handlers.handleUpdateCalendarEvent).toHaveBeenCalledWith({
+      ...request.arguments,
+      action: 'update',
+    });
     const denied = await client.callTool(request);
     expect(denied.isError).toBe(true);
     expect(confirm).toHaveBeenCalledTimes(2);
@@ -315,16 +384,20 @@ describe('write confirmation over MCP', () => {
     true,
   ])('reads with requireWriteConfirmation=%s', (required) => {
     it.each([
-      ['reminders_tasks', handlers.handleReadReminders],
-      ['reminders_lists', handlers.handleReadReminderLists],
-      ['reminders_subtasks', handlers.handleReadSubtasks],
-      ['calendar_events', handlers.handleReadCalendarEvents],
-      ['calendar_calendars', handlers.handleReadCalendars],
-    ] as const)('permits %s reads without confirmation support', async (name, handler) => {
+      ['reminders_tasks_read', handlers.handleReadReminders, {}],
+      ['reminders_lists_read', handlers.handleReadReminderLists, {}],
+      [
+        'reminders_subtasks_read',
+        handlers.handleReadSubtasks,
+        { reminderId: 'parent' },
+      ],
+      ['calendar_events_read', handlers.handleReadCalendarEvents, {}],
+      ['calendar_calendars_read', handlers.handleReadCalendars, {}],
+    ] as const)('permits %s reads without confirmation support', async (name, handler, args) => {
       await connect(false, { requireWriteConfirmation: required });
       const result = await client.callTool({
         name,
-        arguments: { action: 'read', reminderId: 'parent' },
+        arguments: args,
       });
       expect(result.isError).toBe(false);
       expect(handler).toHaveBeenCalledTimes(1);

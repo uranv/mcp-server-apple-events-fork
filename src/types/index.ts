@@ -201,6 +201,8 @@ export interface ServerConfig {
   version: string;
   /** Startup-only policy. Defaults to false; never read from tool arguments. */
   requireWriteConfirmation?: boolean;
+  /** Tool names enabled at startup. An omitted or empty list enables all tools. */
+  enabledTools?: readonly string[];
 }
 
 /**

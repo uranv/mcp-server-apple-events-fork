@@ -34,6 +34,7 @@ try {
       name: packageJson.name,
       version: packageJson.version,
       requireWriteConfirmation: options.requireWriteConfirmation,
+      enabledTools: options.enabledTools,
     }).catch(() => {
       process.exit(1);
     });

@@ -124,7 +124,7 @@ export const TIME_FORMAT_SPEC =
  * Time block creation strict rules (includes trigger conditions from former DEEP_WORK_CONSTRAINTS)
  */
 export const TIME_BLOCK_CREATION_CONSTRAINTS = [
-  '**Time block creation triggers**: Create calendar_events blocks when tasks meet ANY criteria:',
+  '**Time block creation triggers**: Create calendar blocks with calendar_events_create when tasks meet ANY criteria:',
   '  - Duration >=60 minutes due today, or deep-work keywords (development, design, analysis, planning, refactor, architecture).',
   '  - Multiple related tasks due today totaling >=60 minutes, or explicit focus/uninterrupted cues.',
   `  - Use ${TIME_FORMAT_SPEC} format for startDate and endDate.`,

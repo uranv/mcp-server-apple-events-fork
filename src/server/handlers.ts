@@ -9,16 +9,10 @@ import {
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
   ListToolsRequestSchema,
+  type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { handleToolCall, TOOLS } from '../tools/index.js';
-import type {
-  CalendarsToolArgs,
-  CalendarToolArgs,
-  ListsToolArgs,
-  RemindersToolArgs,
-  ServerConfig,
-  SubtasksToolArgs,
-} from '../types/index.js';
+import { handleToolCall, TOOLS, type ToolInput } from '../tools/index.js';
+import type { ServerConfig } from '../types/index.js';
 import {
   buildPromptResponse,
   getPromptDefinition,
@@ -32,25 +26,31 @@ import {
 export function registerHandlers(
   server: Server,
   config: Pick<ServerConfig, 'requireWriteConfirmation'> = {},
+  tools: readonly Tool[] = TOOLS,
 ): void {
   // Capture startup policy once; neither tool data nor later config mutations
   // can change this instance's confirmation boundary.
   const requireWriteConfirmation = config.requireWriteConfirmation === true;
+  const exposedTools = [...tools];
+  const exposedNames = new Set(exposedTools.map((tool) => tool.name));
   // Handler for listing available tools
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOLS,
+    tools: exposedTools,
   }));
 
   // Handler for calling a tool
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
-    handleToolCall(
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    if (!exposedNames.has(request.params.name)) {
+      return {
+        content: [
+          { type: 'text', text: `Unknown tool: ${request.params.name}` },
+        ],
+        isError: true,
+      };
+    }
+    return handleToolCall(
       request.params.name,
-      (request.params.arguments as unknown as
-        | RemindersToolArgs
-        | ListsToolArgs
-        | SubtasksToolArgs
-        | CalendarToolArgs
-        | CalendarsToolArgs) ?? {},
+      (request.params.arguments as ToolInput | undefined) ?? {},
       async (name, args) => {
         if (!requireWriteConfirmation) return !extra.signal.aborted;
         const result = await server.elicitInput(
@@ -79,8 +79,8 @@ export function registerHandlers(
           result.content?.confirm === true
         );
       },
-    ),
-  );
+    );
+  });
 
   // Handler for listing available prompts
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({

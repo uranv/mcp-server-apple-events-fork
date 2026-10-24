@@ -26,6 +26,8 @@ describe('built CLI', () => {
       args: ['--no-require-write-confirmation', '--require-write-confirmation'],
     },
     { args: ['--no-help'] },
+    { args: ['--tools=unknown'] },
+    { args: ['--tools', 'calendar_events'] },
   ])('rejects $args on stderr without starting MCP', ({ args }) => {
     const result = spawnSync(process.execPath, ['dist/index.js', ...args], {
       encoding: 'utf8',
@@ -34,6 +36,69 @@ describe('built CLI', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('Invalid server options:');
     expect(result.stderr).not.toContain('write confirmation is disabled');
+  });
+
+  it.each([
+    { args: [], names: null },
+    { args: ['--tools'], names: null },
+    { args: ['--tools='], names: null },
+    { args: ['--tools', ''], names: null },
+    { args: ['--tools', '--require-write-confirmation'], names: null },
+    { args: ['--tools', ' '], names: null },
+    { args: ['--tools', ' , , '], names: null },
+    {
+      args: ['--tools', 'calendar_events_create'],
+      names: ['calendar_events_create'],
+    },
+    {
+      args: ['--tools=calendar_events_create,calendar_calendars_read'],
+      names: ['calendar_events_create', 'calendar_calendars_read'],
+    },
+    {
+      args: [
+        '--tools=',
+        '--tools',
+        'calendar_events_create,',
+        '--tools',
+        'calendar_calendars_read,calendar_events_create',
+        '--require-write-confirmation',
+      ],
+      names: ['calendar_events_create', 'calendar_calendars_read'],
+    },
+  ])('selects exposed tools through CLI arguments $args', async ({
+    args,
+    names,
+  }) => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ['dist/index.js', ...args],
+      stderr: 'pipe',
+    });
+    const client = new Client({ name: 'cli-tool-selection', version: '1' });
+    try {
+      await client.connect(transport);
+      const { tools } = await client.listTools();
+      if (names === null) {
+        expect(tools).toHaveLength(19);
+        expect(client.getInstructions()).toContain('Tools (19):');
+      } else {
+        expect(tools.map((tool) => tool.name)).toEqual(names);
+        expect(client.getInstructions()).toContain(`Tools (${names.length}):`);
+        const result = await client.callTool({
+          name: 'calendar_events_delete',
+          arguments: { id: 'existing-event' },
+        });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result)).toContain(
+          'Unknown tool: calendar_events_delete',
+        );
+        expect(client.getInstructions()).not.toContain(
+          '- calendar_events_delete',
+        );
+      }
+    } finally {
+      await client.close();
+    }
   });
 
   it.each([
@@ -62,8 +127,8 @@ describe('built CLI', () => {
       );
       // An invalid payload exercises the selected policy without account access.
       const result = await client.callTool({
-        name: 'reminders_tasks',
-        arguments: { action: 'create' },
+        name: 'reminders_tasks_create',
+        arguments: {},
       });
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).toContain(

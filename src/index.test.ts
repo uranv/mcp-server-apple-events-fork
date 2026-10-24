@@ -54,6 +54,7 @@ describe('index', () => {
       name: 'mcp-server-apple-events',
       version: '0.11.0',
       requireWriteConfirmation: false,
+      enabledTools: undefined,
     });
   });
 

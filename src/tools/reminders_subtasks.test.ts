@@ -32,8 +32,14 @@ const mockRepo = reminderRepository as unknown as {
   updateReminder: jest.Mock;
 };
 
-const callSubtaskTool = (args?: SubtasksToolArgs) =>
-  handleToolCall('reminders_subtasks', args, async () => true);
+const callSubtaskTool = (args?: SubtasksToolArgs) => {
+  const { action = 'read', ...input } = args ?? {};
+  return handleToolCall(
+    `reminders_subtasks_${action}`,
+    input,
+    async () => true,
+  );
+};
 
 const reminderWithoutSubtasks = {
   id: 'reminder-123',
@@ -368,14 +374,14 @@ describe('reminders_subtasks tool', () => {
       } as unknown as SubtasksToolArgs);
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toBe('Unknown reminders_subtasks action: unknown');
+      expect(textOf(result)).toBe('Unknown tool: reminders_subtasks_unknown');
     });
 
     it('returns an error when no arguments are supplied', async () => {
       const result = await callSubtaskTool(undefined);
 
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toBe('No arguments provided');
+      expect(textOf(result)).toContain('reminderId');
     });
 
     it('rejects an empty reminderId at the validation layer', async () => {

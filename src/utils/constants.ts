@@ -41,16 +41,25 @@ export const VALIDATION = {
  * Tool names for MCP server operations
  */
 export const TOOLS = {
-  /** Reminder tasks management tool */
-  REMINDERS_TASKS: 'reminders_tasks',
-  /** Reminder lists management tool */
-  REMINDERS_LISTS: 'reminders_lists',
-  /** Reminder subtasks management tool */
-  REMINDERS_SUBTASKS: 'reminders_subtasks',
-  /** Calendar events management tool */
-  CALENDAR_EVENTS: 'calendar_events',
-  /** Calendar collections management tool */
-  CALENDAR_CALENDARS: 'calendar_calendars',
+  REMINDERS_TASKS_READ: 'reminders_tasks_read',
+  REMINDERS_TASKS_CREATE: 'reminders_tasks_create',
+  REMINDERS_TASKS_UPDATE: 'reminders_tasks_update',
+  REMINDERS_TASKS_DELETE: 'reminders_tasks_delete',
+  REMINDERS_LISTS_READ: 'reminders_lists_read',
+  REMINDERS_LISTS_CREATE: 'reminders_lists_create',
+  REMINDERS_LISTS_UPDATE: 'reminders_lists_update',
+  REMINDERS_LISTS_DELETE: 'reminders_lists_delete',
+  REMINDERS_SUBTASKS_READ: 'reminders_subtasks_read',
+  REMINDERS_SUBTASKS_CREATE: 'reminders_subtasks_create',
+  REMINDERS_SUBTASKS_UPDATE: 'reminders_subtasks_update',
+  REMINDERS_SUBTASKS_DELETE: 'reminders_subtasks_delete',
+  REMINDERS_SUBTASKS_TOGGLE: 'reminders_subtasks_toggle',
+  REMINDERS_SUBTASKS_REORDER: 'reminders_subtasks_reorder',
+  CALENDAR_EVENTS_READ: 'calendar_events_read',
+  CALENDAR_EVENTS_CREATE: 'calendar_events_create',
+  CALENDAR_EVENTS_UPDATE: 'calendar_events_update',
+  CALENDAR_EVENTS_DELETE: 'calendar_events_delete',
+  CALENDAR_CALENDARS_READ: 'calendar_calendars_read',
 } as const;
 
 /**

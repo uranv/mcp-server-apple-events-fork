@@ -1,20 +1,7 @@
-// Use global Jest functions to avoid extra dependencies
-
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type {
-  CalendarsToolArgs,
-  CalendarToolArgs,
-  ListsToolArgs,
-  RemindersToolArgs,
-} from '../types/index.js';
-import { handleToolCall as routeToolCall } from './index.js';
+import * as handlers from './handlers/index.js';
+import { handleToolCall, type ToolInput } from './index.js';
 
-const handleToolCall = (
-  name: string,
-  args?: Parameters<typeof routeToolCall>[1],
-) => routeToolCall(name, args, async () => true);
-
-// Mock all handler functions
 jest.mock('./handlers/index.js', () => ({
   handleCreateReminder: jest.fn(),
   handleReadReminderLists: jest.fn(),
@@ -29,459 +16,243 @@ jest.mock('./handlers/index.js', () => ({
   handleUpdateCalendarEvent: jest.fn(),
   handleDeleteCalendarEvent: jest.fn(),
   handleReadCalendars: jest.fn(),
+  handleReadSubtasks: jest.fn(),
+  handleCreateSubtask: jest.fn(),
+  handleUpdateSubtask: jest.fn(),
+  handleDeleteSubtask: jest.fn(),
+  handleToggleSubtask: jest.fn(),
+  handleReorderSubtasks: jest.fn(),
 }));
 
-jest.mock('./definitions.js', () => ({
-  TOOLS: [
-    { name: 'reminders_tasks', description: 'Reminder tasks tool' },
-    { name: 'reminders_lists', description: 'Reminder lists tool' },
-    { name: 'calendar_events', description: 'Calendar events tool' },
-    { name: 'calendar_calendars', description: 'Calendar collections tool' },
+const routes = [
+  [
+    'reminders_tasks_read',
+    'read',
+    handlers.handleReadReminders,
+    { id: 'task' },
   ],
-}));
+  [
+    'reminders_tasks_create',
+    'create',
+    handlers.handleCreateReminder,
+    { title: 'New reminder' },
+  ],
+  [
+    'reminders_tasks_update',
+    'update',
+    handlers.handleUpdateReminder,
+    { id: 'task', completed: true },
+  ],
+  [
+    'reminders_tasks_delete',
+    'delete',
+    handlers.handleDeleteReminder,
+    { id: 'task' },
+  ],
+  ['reminders_lists_read', 'read', handlers.handleReadReminderLists, {}],
+  [
+    'reminders_lists_create',
+    'create',
+    handlers.handleCreateReminderList,
+    { name: 'Work' },
+  ],
+  [
+    'reminders_lists_update',
+    'update',
+    handlers.handleUpdateReminderList,
+    { name: 'Work', newName: 'Office' },
+  ],
+  [
+    'reminders_lists_delete',
+    'delete',
+    handlers.handleDeleteReminderList,
+    { name: 'Work' },
+  ],
+  [
+    'calendar_events_read',
+    'read',
+    handlers.handleReadCalendarEvents,
+    { id: 'event' },
+  ],
+  [
+    'calendar_events_create',
+    'create',
+    handlers.handleCreateCalendarEvent,
+    {
+      title: 'Meeting',
+      startDate: '2026-11-02 14:00:00',
+      endDate: '2026-11-02 15:00:00',
+    },
+  ],
+  [
+    'calendar_events_update',
+    'update',
+    handlers.handleUpdateCalendarEvent,
+    { id: 'event', title: 'Changed meeting' },
+  ],
+  [
+    'calendar_events_delete',
+    'delete',
+    handlers.handleDeleteCalendarEvent,
+    { id: 'event' },
+  ],
+  ['calendar_calendars_read', 'read', handlers.handleReadCalendars, {}],
+  [
+    'reminders_subtasks_read',
+    'read',
+    handlers.handleReadSubtasks,
+    { reminderId: 'task' },
+  ],
+  [
+    'reminders_subtasks_create',
+    'create',
+    handlers.handleCreateSubtask,
+    { reminderId: 'task', title: 'Checklist item' },
+  ],
+  [
+    'reminders_subtasks_update',
+    'update',
+    handlers.handleUpdateSubtask,
+    { reminderId: 'task', subtaskId: 'subtask', completed: true },
+  ],
+  [
+    'reminders_subtasks_delete',
+    'delete',
+    handlers.handleDeleteSubtask,
+    { reminderId: 'task', subtaskId: 'subtask' },
+  ],
+  [
+    'reminders_subtasks_toggle',
+    'toggle',
+    handlers.handleToggleSubtask,
+    { reminderId: 'task', subtaskId: 'subtask' },
+  ],
+  [
+    'reminders_subtasks_reorder',
+    'reorder',
+    handlers.handleReorderSubtasks,
+    { reminderId: 'task', order: ['second', 'first'] },
+  ],
+] as const;
 
-import {
-  handleCreateCalendarEvent,
-  handleCreateReminder,
-  handleCreateReminderList,
-  handleDeleteCalendarEvent,
-  handleDeleteReminder,
-  handleDeleteReminderList,
-  handleReadCalendarEvents,
-  handleReadCalendars,
-  handleReadReminderLists,
-  handleReadReminders,
-  handleUpdateCalendarEvent,
-  handleUpdateReminder,
-  handleUpdateReminderList,
-} from './handlers/index.js';
+const mockedHandlers = routes.map(([, , handler]) => handler);
 
-const mockHandleCreateReminder = handleCreateReminder as jest.MockedFunction<
-  typeof handleCreateReminder
->;
-const mockHandleReadReminderLists =
-  handleReadReminderLists as jest.MockedFunction<
-    typeof handleReadReminderLists
-  >;
-const mockHandleReadReminders = handleReadReminders as jest.MockedFunction<
-  typeof handleReadReminders
->;
-const mockHandleUpdateReminder = handleUpdateReminder as jest.MockedFunction<
-  typeof handleUpdateReminder
->;
-const mockHandleDeleteReminder = handleDeleteReminder as jest.MockedFunction<
-  typeof handleDeleteReminder
->;
-const mockHandleCreateReminderList =
-  handleCreateReminderList as jest.MockedFunction<
-    typeof handleCreateReminderList
-  >;
-const mockHandleUpdateReminderList =
-  handleUpdateReminderList as jest.MockedFunction<
-    typeof handleUpdateReminderList
-  >;
-const mockHandleDeleteReminderList =
-  handleDeleteReminderList as jest.MockedFunction<
-    typeof handleDeleteReminderList
-  >;
-const mockHandleCreateCalendarEvent =
-  handleCreateCalendarEvent as jest.MockedFunction<
-    typeof handleCreateCalendarEvent
-  >;
-const mockHandleReadCalendarEvents =
-  handleReadCalendarEvents as jest.MockedFunction<
-    typeof handleReadCalendarEvents
-  >;
-const mockHandleUpdateCalendarEvent =
-  handleUpdateCalendarEvent as jest.MockedFunction<
-    typeof handleUpdateCalendarEvent
-  >;
-const mockHandleDeleteCalendarEvent =
-  handleDeleteCalendarEvent as jest.MockedFunction<
-    typeof handleDeleteCalendarEvent
-  >;
-const mockHandleReadCalendars = handleReadCalendars as jest.MockedFunction<
-  typeof handleReadCalendars
->;
+const success: CallToolResult = {
+  content: [{ type: 'text', text: 'Success' }],
+  isError: false,
+};
 
-describe('Tools Index', () => {
+describe('operation-specific tool routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    for (const handler of mockedHandlers) {
+      jest.mocked(handler).mockResolvedValue(success);
+    }
   });
 
-  describe('write authorization', () => {
-    it('rejects a direct router call without confirmation', async () => {
-      const result = await routeToolCall('reminders_tasks', {
-        action: 'delete',
-        id: 'private-item',
-      });
-      expect(result.isError).toBe(true);
-      expect(mockHandleDeleteReminder).not.toHaveBeenCalled();
-    });
-
-    it('dispatches the reviewed snapshot when the caller changes arguments', async () => {
-      const args = { action: 'delete' as const, id: 'reviewed-item' };
-      mockHandleDeleteReminder.mockResolvedValue({
-        content: [],
-        isError: false,
-      });
-      const result = await routeToolCall(
-        'reminders_tasks',
-        args,
-        async (name, reviewed) => {
-          expect(name).toBe('reminders_tasks');
-          expect(reviewed).toEqual({ action: 'delete', id: 'reviewed-item' });
-          args.id = 'unreviewed-item';
-          return true;
-        },
-      );
-      expect(result.isError).toBe(false);
-      expect(mockHandleDeleteReminder).toHaveBeenCalledWith({
-        action: 'delete',
-        id: 'reviewed-item',
-      });
-    });
+  it.each(
+    routes,
+  )('routes %s only to its fixed operation', async (name, action, handler, args) => {
+    const confirm = jest.fn().mockResolvedValue(true);
+    const result = await handleToolCall(name, args as ToolInput, confirm);
+    expect(result).toEqual(success);
+    if (name === 'reminders_lists_read') {
+      expect(handler).toHaveBeenCalledWith();
+    } else {
+      expect(handler).toHaveBeenCalledWith({ ...args, action });
+    }
+    expect(
+      mockedHandlers.filter((fn) => jest.mocked(fn).mock.calls.length),
+    ).toEqual([handler]);
+    expect(confirm).toHaveBeenCalledTimes(action === 'read' ? 0 : 1);
+    if (action !== 'read')
+      expect(confirm).toHaveBeenCalledWith(name, { ...args, action });
   });
 
-  describe('handleToolCall', () => {
-    describe('reminders_tasks tool routing', () => {
-      it.each([
-        [
-          'read',
-          mockHandleReadReminders,
-          { action: 'read' as const, id: '123' },
-        ],
-        [
-          'create',
-          mockHandleCreateReminder,
-          { action: 'create' as const, title: 'Test reminder' },
-        ],
-        [
-          'update',
-          mockHandleUpdateReminder,
-          {
-            action: 'update' as const,
-            title: 'Old title',
-            newTitle: 'New title',
-          },
-        ],
-        [
-          'delete',
-          mockHandleDeleteReminder,
-          { action: 'delete' as const, title: 'Delete me' },
-        ],
-      ])('should route reminders_tasks action=%s correctly', async (_action, mockHandler, args) => {
-        const expectedResult: CallToolResult = {
-          content: [{ type: 'text', text: 'Success' }],
-          isError: false,
-        };
+  it.each(
+    routes,
+  )('rejects an action override on %s before execution or confirmation', async (name, _action, _handler, args) => {
+    const confirm = jest.fn().mockResolvedValue(true);
+    const result = await handleToolCall(
+      name,
+      { ...args, action: 'delete' } as unknown as ToolInput,
+      confirm,
+    );
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain('action');
+    expect(confirm).not.toHaveBeenCalled();
+    for (const handler of mockedHandlers)
+      expect(handler).not.toHaveBeenCalled();
+  });
 
-        mockHandler.mockResolvedValue(expectedResult);
-
-        const result = await handleToolCall('reminders_tasks', args);
-
-        expect(mockHandler).toHaveBeenCalledWith(args);
-        expect(result).toEqual(expectedResult);
-      });
+  it.each([
+    'unknown_tool',
+    '',
+    'toString',
+    '__proto__',
+    'constructor',
+    'reminders_tasks',
+    'reminders_lists',
+    'reminders_subtasks',
+    'calendar_events',
+    'calendar_calendars',
+  ])('rejects unregistered tool %j', async (name) => {
+    const result = await handleToolCall(name, {});
+    expect(result).toEqual({
+      content: [{ type: 'text', text: `Unknown tool: ${name}` }],
+      isError: true,
     });
+    for (const handler of mockedHandlers)
+      expect(handler).not.toHaveBeenCalled();
+  });
 
-    describe('error handling', () => {
-      it('should return error for unknown tool and not call handlers', async () => {
-        const result = await handleToolCall('unknown_tool', {
-          action: 'read',
-        } as unknown as RemindersToolArgs);
-
-        expect(result).toEqual({
-          content: [{ type: 'text', text: 'Unknown tool: unknown_tool' }],
-          isError: true,
-        });
-        expect(mockHandleCreateReminder).not.toHaveBeenCalled();
-        expect(mockHandleReadReminders).not.toHaveBeenCalled();
-        expect(mockHandleReadReminderLists).not.toHaveBeenCalled();
-        expect(mockHandleUpdateReminder).not.toHaveBeenCalled();
-        expect(mockHandleDeleteReminder).not.toHaveBeenCalled();
-      });
-
-      it('should return error for empty tool name', async () => {
-        const result = await handleToolCall('', {
-          action: 'read',
-        } as RemindersToolArgs);
-
-        expect(result).toEqual({
-          content: [{ type: 'text', text: 'Unknown tool: ' }],
-          isError: true,
-        });
-      });
-
-      it('should return error for unknown reminders_lists action', async () => {
-        const result = await handleToolCall('reminders_lists', {
-          action: 'unknown',
-        } as unknown as ListsToolArgs);
-
-        expect(result).toEqual({
-          content: [
-            {
-              type: 'text',
-              text: 'Unknown reminders_lists action: unknown',
-            },
-          ],
-          isError: true,
-        });
-      });
-
-      it('should propagate handler errors', async () => {
-        const error = new Error('Handler failed');
-        mockHandleCreateReminder.mockRejectedValue(error);
-
-        await expect(
-          handleToolCall('reminders_tasks', { action: 'create' as const }),
-        ).rejects.toThrow('Handler failed');
-      });
-
-      it('should handle complex arguments', async () => {
-        const complexArgs = {
-          action: 'create' as const,
-          title: 'Complex reminder',
-          dueDate: '2024-12-25 18:00:00',
-          list: 'Work Tasks',
-          note: 'Complex note',
-          url: 'https://example.com/task',
-        };
-
-        const expectedResult: CallToolResult = {
-          content: [{ type: 'text', text: 'Complex reminder created' }],
-          isError: false,
-        };
-
-        mockHandleCreateReminder.mockResolvedValue(expectedResult);
-
-        const result = await handleToolCall('reminders_tasks', complexArgs);
-
-        expect(mockHandleCreateReminder).toHaveBeenCalledWith(complexArgs);
-        expect(result).toEqual(expectedResult);
-      });
+  it('requires confirmation for a direct write router call', async () => {
+    const result = await handleToolCall('reminders_tasks_delete', {
+      id: 'private-item',
     });
+    expect(result.isError).toBe(true);
+    expect(handlers.handleDeleteReminder).not.toHaveBeenCalled();
+  });
 
-    describe('reminders_tasks tool error handling', () => {
-      it.each([
-        [undefined, 'No arguments provided'],
-        [{ action: undefined }, 'Unknown reminders_tasks action: undefined'],
-        [{ action: 'unknown' }, 'Unknown reminders_tasks action: unknown'],
-      ])('should return error for invalid reminders_tasks args', async (args, expectedText) => {
-        const result = await handleToolCall(
-          'reminders_tasks',
-          args as unknown as RemindersToolArgs,
-        );
-
-        expect(result).toEqual({
-          content: [{ type: 'text', text: expectedText }],
-          isError: true,
-        });
-      });
-    });
-
-    describe('reminders_lists tool routing', () => {
-      it.each([
-        [
-          'read',
-          mockHandleReadReminderLists,
-          { action: 'read' as const },
-          undefined,
-        ],
-        [
-          'create',
-          mockHandleCreateReminderList,
-          { action: 'create' as const, name: 'New List' },
-          { action: 'create', name: 'New List' },
-        ],
-        [
-          'update',
-          mockHandleUpdateReminderList,
-          { action: 'update' as const, name: 'Old Name', newName: 'New Name' },
-          { action: 'update', name: 'Old Name', newName: 'New Name' },
-        ],
-        [
-          'delete',
-          mockHandleDeleteReminderList,
-          { action: 'delete' as const, name: 'List Name' },
-          { action: 'delete', name: 'List Name' },
-        ],
-      ])('should route reminders_lists action=%s correctly', async (_action, mockHandler, args, expectedCallArgs) => {
-        const expectedResult: CallToolResult = {
-          content: [{ type: 'text', text: 'Success' }],
-          isError: false,
-        };
-
-        mockHandler.mockResolvedValue(expectedResult);
-
-        const result = await handleToolCall(
-          'reminders_lists',
-          args as ListsToolArgs,
-        );
-
-        if (expectedCallArgs) {
-          expect(mockHandler).toHaveBeenCalledWith(expectedCallArgs);
-        } else {
-          expect(mockHandler).toHaveBeenCalled();
-        }
-        expect(result).toEqual(expectedResult);
-      });
-    });
-
-    describe('reminders_lists tool validation errors', () => {
-      it.each([
-        [
-          'create',
-          mockHandleCreateReminderList,
-          { action: 'create' as const },
-          'name',
-        ],
-        [
-          'update',
-          mockHandleUpdateReminderList,
-          { action: 'update' as const, newName: 'New Name' },
-          'name',
-        ],
-        [
-          'update',
-          mockHandleUpdateReminderList,
-          { action: 'update' as const, name: 'Old Name' },
-          'newName',
-        ],
-        [
-          'delete',
-          mockHandleDeleteReminderList,
-          { action: 'delete' as const },
-          'name',
-        ],
-      ])('should return validation error when reminders_lists %s field is missing', async (_action, mockHandler, args, missingField) => {
-        mockHandler.mockResolvedValue({
-          content: [
-            {
-              type: 'text',
-              text: `Input validation failed: ${missingField}: List name cannot be empty`,
-            },
-          ],
-          isError: true,
-        });
-
-        const result = await handleToolCall(
-          'reminders_lists',
-          args as ListsToolArgs,
-        );
-
-        expect(result.isError).toBe(true);
-        expect(result.content[0]!.type).toBe('text');
-        const textContent = result.content[0] as
-          | { type: 'text'; text: string }
-          | undefined;
-        expect(textContent?.text).toContain('Input validation failed');
-        expect(textContent?.text).toContain(missingField);
-      });
+  it('dispatches the reviewed snapshot when the caller changes arguments', async () => {
+    const args = { id: 'reviewed-item' };
+    const result = await handleToolCall(
+      'reminders_tasks_delete',
+      args,
+      async (name, reviewed) => {
+        expect(name).toBe('reminders_tasks_delete');
+        expect(reviewed).toEqual({ action: 'delete', id: 'reviewed-item' });
+        args.id = 'unreviewed-item';
+        return true;
+      },
+    );
+    expect(result.isError).toBe(false);
+    expect(handlers.handleDeleteReminder).toHaveBeenCalledWith({
+      action: 'delete',
+      id: 'reviewed-item',
     });
   });
 
-  describe('calendar_events tool routing', () => {
-    it.each([
-      ['read', mockHandleReadCalendarEvents, { action: 'read' as const }],
-      [
-        'create',
-        mockHandleCreateCalendarEvent,
-        {
-          action: 'create' as const,
-          title: 'New Event',
-          startDate: '2025-11-04 14:00:00',
-          endDate: '2025-11-04 16:00:00',
-        },
-      ],
-      [
-        'update',
-        mockHandleUpdateCalendarEvent,
-        {
-          action: 'update' as const,
-          id: 'event-123',
-          title: 'Updated Event',
-        },
-      ],
-      [
-        'delete',
-        mockHandleDeleteCalendarEvent,
-        { action: 'delete' as const, id: 'event-123' },
-      ],
-    ])('should route calendar_events action=%s correctly', async (_action, mockHandler, args) => {
-      const expectedResult: CallToolResult = {
-        content: [{ type: 'text', text: 'Success' }],
-        isError: false,
-      };
-
-      mockHandler.mockResolvedValue(expectedResult);
-
-      const result = await handleToolCall(
-        'calendar_events',
-        args as CalendarToolArgs,
-      );
-
-      expect(mockHandler).toHaveBeenCalledWith(args);
-      expect(result).toEqual(expectedResult);
-    });
-
-    it('should return error for unknown calendar_events action', async () => {
-      const result = await handleToolCall('calendar_events', {
-        action: 'unknown',
-      } as unknown as CalendarToolArgs);
-
-      expect(result).toEqual({
-        content: [
-          {
-            type: 'text',
-            text: 'Unknown calendar_events action: unknown',
-          },
-        ],
-        isError: true,
-      });
-    });
-
-    it('should return error when calendar events args are missing', async () => {
-      const result = await handleToolCall('calendar_events', undefined);
-
-      expect(result).toEqual({
-        content: [{ type: 'text', text: 'No arguments provided' }],
-        isError: true,
-      });
-    });
+  it('rejects fields belonging to another operation', async () => {
+    const result = await handleToolCall(
+      'calendar_events_delete',
+      { id: 'event', title: 'Unexpected' },
+      async () => true,
+    );
+    expect(result.isError).toBe(true);
+    expect(handlers.handleDeleteCalendarEvent).not.toHaveBeenCalled();
   });
 
-  describe('calendar_calendars tool routing', () => {
-    it('should route read action to handleReadCalendars', async () => {
-      const expectedResult: CallToolResult = {
-        content: [{ type: 'text', text: 'Calendars listed' }],
-        isError: false,
-      };
-
-      mockHandleReadCalendars.mockResolvedValue(expectedResult);
-
-      const result = await handleToolCall('calendar_calendars', {
-        action: 'read',
-      } as CalendarsToolArgs);
-
-      expect(mockHandleReadCalendars).toHaveBeenCalledWith({
-        action: 'read',
-      });
-      expect(result).toEqual(expectedResult);
-    });
-
-    it('should allow missing args and still call handleReadCalendars', async () => {
-      const expectedResult: CallToolResult = {
-        content: [{ type: 'text', text: 'Calendars listed' }],
-        isError: false,
-      };
-
-      mockHandleReadCalendars.mockResolvedValue(expectedResult);
-
-      const result = await handleToolCall('calendar_calendars');
-
-      expect(mockHandleReadCalendars).toHaveBeenCalledWith(undefined);
-      expect(result).toEqual(expectedResult);
-    });
+  it('propagates handler failures', async () => {
+    jest
+      .mocked(handlers.handleCreateReminder)
+      .mockRejectedValue(new Error('Handler failed'));
+    await expect(
+      handleToolCall(
+        'reminders_tasks_create',
+        { title: 'Task' },
+        async () => true,
+      ),
+    ).rejects.toThrow('Handler failed');
   });
 });

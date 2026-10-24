@@ -74,9 +74,11 @@ describe('Server Module', () => {
       };
       expect(callOptions.capabilities).not.toHaveProperty('resources');
 
-      expect(registerHandlers).toHaveBeenCalledWith(mockServerInstance, {
-        requireWriteConfirmation: false,
-      });
+      expect(registerHandlers).toHaveBeenCalledWith(
+        mockServerInstance,
+        { requireWriteConfirmation: false },
+        expect.any(Array),
+      );
       expect(_server).toBe(mockServerInstance);
     });
   });
@@ -202,9 +204,11 @@ describe('Server Module', () => {
 
       expect(mockServer).toHaveBeenCalledTimes(1);
       expect(mockStdioServerTransport).toHaveBeenCalledTimes(1);
-      expect(registerHandlers).toHaveBeenCalledWith(mockServerInstance, {
-        requireWriteConfirmation: false,
-      });
+      expect(registerHandlers).toHaveBeenCalledWith(
+        mockServerInstance,
+        { requireWriteConfirmation: false },
+        expect.any(Array),
+      );
     });
 
     describe('signal handlers', () => {

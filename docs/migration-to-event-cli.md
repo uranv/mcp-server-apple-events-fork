@@ -1,5 +1,7 @@
 # Migrating to the `event` CLI backend
 
+This backend migration document uses resource prefixes such as `calendar_events` to describe field support. In this fork, callable tool names have an operation suffix (for example, `calendar_events_create` and `calendar_events_update`); the old combined names and `action` argument are removed. See the [current MCP tool table](../README.md#available-mcp-tools).
+
 `mcp-server-apple-events` v1.5.0 swaps its embedded Swift binary for the
 standalone [`event`](https://github.com/FradSer/event) CLI. The two projects
 now share one EventKit codebase. The initial migration dropped MCP write

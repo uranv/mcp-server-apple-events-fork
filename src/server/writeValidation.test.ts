@@ -28,22 +28,24 @@ describe('default writes through real validation and result handling', () => {
       await server.connect(b);
       await client.connect(a);
       for (const args of [
-        { action: 'create' },
-        { action: 'create', title: 123 },
+        {},
+        { title: 123 },
+        { title: 'Example', action: 'delete' },
+        { title: 'Example', requireWriteConfirmation: true },
       ]) {
         expect(
-          (await client.callTool({ name: 'reminders_tasks', arguments: args }))
-            .isError,
+          (
+            await client.callTool({
+              name: 'reminders_tasks_create',
+              arguments: args,
+            })
+          ).isError,
         ).toBe(true);
       }
       expect(create).not.toHaveBeenCalled();
       const result = await client.callTool({
-        name: 'reminders_tasks',
-        arguments: {
-          action: 'create',
-          title: 'Example',
-          requireWriteConfirmation: true,
-        },
+        name: 'reminders_tasks_create',
+        arguments: { title: 'Example' },
       });
       expect(result.isError).toBe(false);
       expect(create).toHaveBeenCalledTimes(1);
