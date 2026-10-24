@@ -56,7 +56,11 @@ const reminderFields = {
     enum: [0, 1, 5, 9],
     description: 'Priority: 0=none, 1=high, 5=medium, 9=low.',
   },
-  targetList: { type: 'string', description: 'The name of the reminder list.' },
+  targetList: {
+    type: 'string',
+    description:
+      'Name of the list for the new reminder. Omit to use the default list.',
+  },
   filterList: {
     type: 'string',
     description: 'Filter by a reminder list name.',
@@ -75,12 +79,12 @@ const reminderFields = {
   startDate: {
     type: 'string',
     description:
-      'Start date for an update, or the inclusive start of a read window. Reads use only the date prefix; if one bound is omitted, it defaults to a 14-day window.',
+      'Set the start date of the existing reminder. Use YYYY-MM-DD for an all-day start, YYYY-MM-DD HH:mm:ss for local time, or ISO 8601 with a timezone.',
   },
   endDate: {
     type: 'string',
     description:
-      'Exclusive end day of the read window. Reads use only the date prefix; if one bound is omitted, it defaults to a 14-day window.',
+      'Exclusive end day of the due-date window. The tool uses only the date prefix. If you omit startDate, the window spans 14 days.',
   },
   filterPriority: {
     type: 'string',
@@ -133,7 +137,7 @@ const listFields = {
 const calendarFields = {
   id: {
     type: 'string',
-    description: 'The event identifier. Reading by ID needs no date range.',
+    description: 'The event identifier.',
   },
   title: { type: 'string', description: 'The event title.' },
   startDate: {
@@ -156,13 +160,13 @@ const calendarFields = {
   url: {
     type: ['string', 'null'],
     description:
-      'Event URL. On update, null removes it. Unsafe schemes and blocked network addresses are rejected.',
+      'Set the event URL. Use null to remove the current URL. The tool rejects unsafe schemes and blocked network addresses.',
   },
   alarms: {
     type: 'array',
     items: { type: 'integer', minimum: 0 },
     description:
-      'Minutes before the start. Create sets alarms; update replaces them.',
+      'Replace the event alarms with these minutes before the event starts. Use an empty array to remove all alarms.',
   },
   addAlarms: {
     type: 'array',
@@ -180,7 +184,7 @@ const calendarFields = {
     type: 'array',
     items: { type: 'string' },
     description:
-      'Email addresses to invite. Sends real invitations; supply attendees alone in an update. Requires Calendar.app Automation permission.',
+      'Email addresses to invite. This sends real invitations and requires Calendar.app Automation permission. Supply only id and attendees.',
   },
   span: {
     type: 'string',
@@ -207,6 +211,11 @@ const calendarFields = {
 
 const calendarReadFields = {
   ...calendarFields,
+  id: {
+    ...calendarFields.id,
+    description:
+      'Read this event by its identifier. When you supply id, the tool ignores date ranges and search filters.',
+  },
   startDate: {
     type: 'string',
     description:
@@ -233,7 +242,8 @@ const subtaskFields = {
   title: { type: 'string', description: 'The subtask title.' },
   completed: {
     type: 'boolean',
-    description: 'The completion status of the subtask.',
+    description:
+      'Set true to mark the subtask complete, or false to mark it incomplete.',
   },
   order: {
     type: 'array',
@@ -273,8 +283,20 @@ export const TOOLS: Tool[] = [
   operationTool(
     TOOL_NAMES.REMINDERS_TASKS_READ,
     'read',
-    'Read or search reminders. Returns structured records; makes no changes.',
-    reminderFields,
+    'Read or search reminders. Returns structured records. This tool makes no changes.',
+    {
+      ...reminderFields,
+      id: {
+        ...reminderFields.id,
+        description:
+          'Read this reminder by its identifier. When you supply id, the tool ignores other filters.',
+      },
+      startDate: {
+        ...reminderFields.startDate,
+        description:
+          'Inclusive start day of the due-date window. The tool uses only the date prefix. If you omit endDate, the window spans 14 days.',
+      },
+    },
     [
       'id',
       'filterList',
@@ -310,7 +332,14 @@ export const TOOLS: Tool[] = [
     TOOL_NAMES.REMINDERS_TASKS_UPDATE,
     'update',
     'Update an existing reminder, including completion and tags. Cross-list moves, alarms, recurrence, and location triggers are unsupported.',
-    reminderFields,
+    {
+      ...reminderFields,
+      targetList: {
+        ...reminderFields.targetList,
+        description:
+          'The reminder must already belong to this list. Omit to skip this check. This tool cannot move reminders between lists.',
+      },
+    },
     [
       'id',
       'title',
@@ -355,7 +384,13 @@ export const TOOLS: Tool[] = [
     TOOL_NAMES.REMINDERS_LISTS_UPDATE,
     'update',
     'Rename a reminder list.',
-    listFields,
+    {
+      ...listFields,
+      name: {
+        ...listFields.name,
+        description: 'The current name of the reminder list to rename.',
+      },
+    },
     ['name', 'newName'],
     ['name', 'newName'],
   ),
@@ -371,14 +406,14 @@ export const TOOLS: Tool[] = [
   operationTool(
     TOOL_NAMES.CALENDAR_EVENTS_READ,
     'read',
-    'Read or search calendar events. Timed records include UTC startDateISO/endDateISO when the source timezone resolves unambiguously; use those fields to compare instants. Makes no changes.',
+    'Read or search calendar events. Timed records include UTC startDateISO/endDateISO when the source timezone resolves unambiguously. Use those fields to compare instants. This tool makes no changes.',
     calendarReadFields,
     ['id', 'filterCalendar', 'search', 'availability', 'startDate', 'endDate'],
   ),
   operationTool(
     TOOL_NAMES.CALENDAR_EVENTS_CREATE,
     'create',
-    'Create a calendar event. All-day is inferred from bare YYYY-MM-DD dates. URLs, alarms, and availability are supported; recurrence and structured locations must be configured in Calendar.app.',
+    'Create a calendar event. Bare YYYY-MM-DD dates specify an all-day event. The tool supports URLs, alarms, and availability. Configure recurrence and structured locations in Calendar.app.',
     {
       ...calendarFields,
       url: {
@@ -386,6 +421,11 @@ export const TOOLS: Tool[] = [
         type: 'string',
         description:
           'Event URL. Unsafe schemes and blocked network addresses are rejected.',
+      },
+      alarms: {
+        ...calendarFields.alarms,
+        description:
+          'Minutes before the new event starts. Use 0 for an alarm at the start.',
       },
     },
     [
@@ -475,7 +515,7 @@ export const TOOLS: Tool[] = [
   operationTool(
     TOOL_NAMES.REMINDERS_SUBTASKS_TOGGLE,
     'toggle',
-    'Toggle the completion status of a checklist subtask.',
+    'Change an existing subtask from complete to incomplete, or from incomplete to complete. This modifies the parent reminder notes.',
     subtaskFields,
     ['reminderId', 'subtaskId'],
     ['reminderId', 'subtaskId'],
@@ -483,7 +523,7 @@ export const TOOLS: Tool[] = [
   operationTool(
     TOOL_NAMES.REMINDERS_SUBTASKS_REORDER,
     'reorder',
-    'Reorder all checklist subtasks in a reminder.',
+    'Change the order of existing checklist subtasks. This modifies the parent reminder notes.',
     subtaskFields,
     ['reminderId', 'order'],
     ['reminderId', 'order'],
